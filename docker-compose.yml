@@ -1,0 +1,15 @@
+# Chorus Studio — Standalone UI
+# Run: docker compose up -d
+#
+# Requires Chorus Observe Server to be running separately.
+# Set CHORUS_API_URL to point to your backend.
+
+services:
+  chorus-studio:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    ports:
+      - "3000:3000"
+    environment:
+      CHORUS_API_URL: ${CHORUS_API_URL:-http://host.docker.internal:8080}
