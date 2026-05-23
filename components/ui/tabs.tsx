@@ -4,28 +4,39 @@ import { cn } from "@/lib/utils";
 interface TabsProps {
   defaultValue: string;
   children: React.ReactNode;
+  className?: string;
 }
 
 const TabsContext = React.createContext<{ value: string; setValue: (v: string) => void } | null>(null);
 
-function Tabs({ defaultValue, children }: TabsProps) {
+function Tabs({ defaultValue, children, className }: TabsProps) {
   const [value, setValue] = React.useState(defaultValue);
   return (
     <TabsContext.Provider value={{ value, setValue }}>
-      <div>{children}</div>
+      <div className={className}>{children}</div>
     </TabsContext.Provider>
   );
 }
 
 function TabsList({ className, children }: React.HTMLAttributes<HTMLDivElement>) {
   return (
-    <div className={cn("inline-flex h-10 items-center justify-center rounded-md bg-muted p-1 text-muted-foreground", className)}>
+    <div
+      className={cn(
+        "flex items-center gap-0 border-b border-border overflow-x-auto scrollbar-none",
+        className
+      )}
+    >
       {children}
     </div>
   );
 }
 
-function TabsTrigger({ value, className, children }: { value: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
+function TabsTrigger({
+  value,
+  className,
+  children,
+  ...props
+}: { value: string } & React.ButtonHTMLAttributes<HTMLButtonElement>) {
   const ctx = React.useContext(TabsContext);
   if (!ctx) throw new Error("TabsTrigger must be inside Tabs");
   const active = ctx.value === value;
@@ -33,21 +44,33 @@ function TabsTrigger({ value, className, children }: { value: string } & React.B
     <button
       onClick={() => ctx.setValue(value)}
       className={cn(
-        "inline-flex items-center justify-center whitespace-nowrap rounded-sm px-3 py-1.5 text-sm font-medium ring-offset-background transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50",
-        active ? "bg-background text-foreground shadow-sm" : "hover:bg-background/50 hover:text-foreground",
+        "relative shrink-0 px-4 py-2.5 text-sm font-medium transition-colors focus-visible:outline-none",
+        "after:absolute after:bottom-0 after:left-0 after:right-0 after:h-0.5 after:rounded-t-full after:transition-all",
+        active
+          ? "text-foreground after:bg-primary"
+          : "text-muted-foreground hover:text-foreground after:bg-transparent",
         className
       )}
+      {...props}
     >
       {children}
     </button>
   );
 }
 
-function TabsContent({ value, className, children }: { value: string } & React.HTMLAttributes<HTMLDivElement>) {
+function TabsContent({
+  value,
+  className,
+  children,
+}: {
+  value: string;
+} & React.HTMLAttributes<HTMLDivElement>) {
   const ctx = React.useContext(TabsContext);
   if (!ctx) throw new Error("TabsContent must be inside Tabs");
   if (ctx.value !== value) return null;
-  return <div className={cn("mt-2 ring-offset-background focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2", className)}>{children}</div>;
+  return (
+    <div className={cn("pt-4 focus-visible:outline-none", className)}>{children}</div>
+  );
 }
 
 export { Tabs, TabsList, TabsTrigger, TabsContent };

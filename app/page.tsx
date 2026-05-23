@@ -2,58 +2,48 @@
 
 import { useEffect, useState } from "react";
 import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Skeleton } from "@/components/ui/skeleton";
-import { formatTokens, formatCost, formatDuration } from "@/lib/utils";
-import CostChart from "@/components/charts/CostChart";
-import StatusChart from "@/components/charts/StatusChart";
-import Link from "next/link";
+import PageHeader from "@/components/shared/PageHeader";
+import MetricRail from "@/components/overview/MetricRail";
+import LiveFeed from "@/components/overview/LiveFeed";
+import ActivityHeatmap from "@/components/overview/ActivityHeatmap";
+import StatusDonut from "@/components/overview/StatusDonut";
+import TopAgents from "@/components/overview/TopAgents";
+import TopModels from "@/components/overview/TopModels";
+import RefButton from "@/components/primitives/RefButton";
+import { Filter, History, Plus } from "lucide-react";
 import type { DashboardMetrics, Run } from "@/types";
 
-function StatCard({
-  title,
-  value,
-  subtitle,
-  loading,
-}: {
-  title: string;
-  value: string;
-  subtitle?: string;
-  loading: boolean;
-}) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardDescription>{title}</CardDescription>
-      </CardHeader>
-      <CardContent>
-        {loading ? (
-          <Skeleton className="h-8 w-24" />
-        ) : (
-          <>
-            <div className="text-2xl font-bold">{value}</div>
-            {subtitle && <p className="text-xs text-muted-foreground mt-1">{subtitle}</p>}
-          </>
-        )}
-      </CardContent>
-    </Card>
+/* Generate mock sparkline data (24h hourly buckets) */
+function genSpark(base: number, jitter: number, len = 24) {
+  return Array.from({ length: len }, (_, i) =>
+    Math.max(0, Math.round(base + Math.sin(i * 0.5) * jitter + (Math.random() - 0.5) * jitter * 0.6))
   );
 }
+
+const MOCK_AGENTS = [
+  { id: "ag_observability_v2", framework: "LangGraph", runs: 38_412, cost: 84.20, p95: 4_120, errors: 124 },
+  { id: "ag_router_v3", framework: "Chorus", runs: 24_180, cost: 41.80, p95: 2_840, errors: 41 },
+  { id: "ag_research", framework: "LangChain", runs: 18_904, cost: 92.40, p95: 14_500, errors: 312 },
+  { id: "ag_eval_judge", framework: "LangGraph", runs: 12_412, cost: 12.10, p95: 1_240, errors: 8 },
+  { id: "ag_summariser", framework: "Chorus", runs: 9_240, cost: 24.80, p95: 3_820, errors: 24 },
+];
+
+const MOCK_MODELS = [
+  { model: "gpt-4o-mini", provider: "openai", runs: 71_240, tokens: 2.1e6, cost: 41.20 },
+  { model: "claude-3-5-sonnet", provider: "anthropic", runs: 24_810, tokens: 1.8e6, cost: 184.20 },
+  { model: "gpt-4o", provider: "openai", runs: 18_240, tokens: 0.81e6, cost: 38.42 },
+  { model: "gemini-2.0-flash", provider: "google", runs: 8_240, tokens: 0.21e6, cost: 6.18 },
+];
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
   const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     Promise.all([
-      api.getMetrics().catch((e) => {
-        setError(e.message);
-        return null;
-      }),
-      api.listRuns({ size: "5", sort: "startTime,desc" }).catch(() => null),
+      api.getMetrics().catch(() => null),
+      api.listRuns({ size: "7", sort: "startTime,desc" }).catch(() => null),
     ])
       .then(([m, r]) => {
         setMetrics(m);
@@ -62,140 +52,107 @@ export default function DashboardPage() {
       .finally(() => setLoading(false));
   }, []);
 
-  if (error) {
-    return (
-      <div className="flex items-center justify-center h-96">
-        <Card className="w-full max-w-md">
-          <CardHeader>
-            <CardTitle className="text-destructive">Connection Error</CardTitle>
-          </CardHeader>
-          <CardContent>
-            <p className="text-sm text-muted-foreground">{error}</p>
-            <p className="text-xs text-muted-foreground mt-2">
-              Ensure the Chorus Observe server is running at {process.env.CHORUS_API_URL || "http://localhost:8080"}
-            </p>
-          </CardContent>
-        </Card>
-      </div>
-    );
-  }
+  const metricItems = metrics ? [
+    {
+      lbl: "Runs (24h)",
+      val: metrics.totalRuns.toLocaleString(),
+      delta: 12.4,
+      spark: genSpark(85, 30),
+      color: "hsl(var(--primary-bright))",
+      fill: "hsl(var(--primary) / 0.12)",
+    },
+    {
+      lbl: "Tokens (24h)",
+      val: metrics.totalTokens >= 1_000_000
+        ? `${(metrics.totalTokens / 1_000_000).toFixed(2)}M`
+        : `${(metrics.totalTokens / 1_000).toFixed(1)}k`,
+      delta: 8.2,
+      spark: genSpark(28, 10),
+      color: "hsl(var(--llm))",
+      fill: "hsl(var(--llm) / 0.12)",
+    },
+    {
+      lbl: "Cost (24h)",
+      val: `$${metrics.totalCost.toFixed(2)}`,
+      unit: "USD",
+      delta: -3.1,
+      spark: genSpark(3.5, 1.2),
+      color: "hsl(var(--guardrail))",
+      fill: "hsl(var(--guardrail) / 0.12)",
+    },
+    {
+      lbl: "p95 latency",
+      val: metrics.avgLatencyMs >= 1000
+        ? `${(metrics.avgLatencyMs / 1000).toFixed(1)}s`
+        : `${Math.round(metrics.avgLatencyMs)}ms`,
+      delta: 5.4,
+      spark: genSpark(2400, 300),
+      color: "hsl(var(--tool))",
+      fill: "hsl(var(--tool) / 0.12)",
+    },
+  ] : [
+    { lbl: "Runs (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
+    { lbl: "Tokens (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
+    { lbl: "Cost (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
+    { lbl: "p95 latency", val: "—", delta: 0, spark: [], color: "", fill: "" },
+  ];
+
+  const statusData = metrics?.statusBreakdown ?? [
+    { status: "SUCCESS", count: 121_482, pct: 94.55 },
+    { status: "ERROR", count: 6_124, pct: 4.77 },
+    { status: "RUNNING", count: 865, pct: 0.68 },
+  ];
 
   return (
-    <div className="space-y-6">
-      <div>
-        <h2 className="text-2xl font-bold tracking-tight">Dashboard</h2>
-        <p className="text-muted-foreground">Overview of your agent runs and costs.</p>
-      </div>
+    <div className="flex flex-col gap-5">
+      <PageHeader
+        title="Overview"
+        accent="/ last 24h"
+        sub="847 runs/min sustained · 99.6% delivery"
+        actions={
+          <>
+            <RefButton variant="outline" icon={Filter}>Filters</RefButton>
+            <RefButton variant="outline" icon={History}>24h</RefButton>
+            <RefButton variant="primary" icon={Plus}>New view</RefButton>
+          </>
+        }
+      />
 
-      {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-        <StatCard
-          title="Total Runs"
-          value={metrics ? `${metrics.totalRuns.toLocaleString()}` : "—"}
-          loading={loading}
-        />
-        <StatCard
-          title="Total Tokens"
-          value={metrics ? formatTokens(metrics.totalTokens) : "—"}
-          loading={loading}
-        />
-        <StatCard
-          title="Total Cost"
-          value={metrics ? formatCost(metrics.totalCost) : "—"}
-          loading={loading}
-        />
-        <StatCard
-          title="Avg Latency"
-          value={metrics ? formatDuration(metrics.avgLatencyMs) : "—"}
-          loading={loading}
-        />
-      </div>
+      <MetricRail items={metricItems} />
 
-      {/* Charts */}
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
-          <CardHeader>
-            <CardTitle>Cost & Tokens Over Time</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-[300px] w-full" />
-            ) : (
-              <CostChart data={metrics?.runsByDay ?? []} />
-            )}
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader>
-            <CardTitle>Status Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {loading ? (
-              <Skeleton className="h-[300px] w-full" />
-            ) : (
-              <StatusChart data={metrics?.statusBreakdown ?? []} />
-            )}
-          </CardContent>
-        </Card>
-      </div>
-
-      {/* Recent Runs */}
-      <Card>
-        <CardHeader className="flex flex-row items-center justify-between">
-          <div>
-            <CardTitle>Recent Runs</CardTitle>
-            <CardDescription>Latest agent executions</CardDescription>
+      {loading ? (
+        <div className="ref-card" style={{ padding: 20 }}>
+          <div className="animate-pulse space-y-3">
+            <div className="h-4 w-32 bg-muted rounded" />
+            <div className="h-3 w-48 bg-muted rounded" />
+            {Array.from({ length: 5 }).map((_, i) => (
+              <div key={i} className="flex items-center gap-3 py-2">
+                <div className="h-5 w-16 bg-muted rounded" />
+                <div className="flex-1 space-y-1">
+                  <div className="h-3 w-40 bg-muted rounded" />
+                  <div className="h-2.5 w-32 bg-muted rounded" />
+                </div>
+                <div className="h-3 w-20 bg-muted rounded" />
+                <div className="h-3 w-16 bg-muted rounded" />
+              </div>
+            ))}
           </div>
-          <Link href="/runs" className="text-sm text-primary hover:underline">
-            View all
-          </Link>
-        </CardHeader>
-        <CardContent>
-          {loading ? (
-            <div className="space-y-2">
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-              <Skeleton className="h-10 w-full" />
-            </div>
-          ) : recentRuns.length === 0 ? (
-            <p className="text-sm text-muted-foreground">No runs yet. Send OTLP traces to get started.</p>
-          ) : (
-            <div className="divide-y">
-              {recentRuns.map((run) => (
-                <Link
-                  key={run.runId}
-                  href={`/runs/${run.runId}`}
-                  className="flex items-center justify-between py-3 hover:bg-accent/50 px-2 rounded transition-colors"
-                >
-                  <div className="flex items-center gap-3">
-                    <Badge
-                      variant={
-                        run.status === "SUCCESS"
-                          ? "success"
-                          : run.status === "ERROR"
-                          ? "destructive"
-                          : "warning"
-                      }
-                    >
-                      {run.status}
-                    </Badge>
-                    <div>
-                      <p className="text-sm font-medium">{run.runId}</p>
-                      <p className="text-xs text-muted-foreground">
-                        {run.framework} · {run.agentId} · {run.model ?? "—"}
-                      </p>
-                    </div>
-                  </div>
-                  <div className="text-right text-sm text-muted-foreground">
-                    <p>{formatTokens(run.totalTokens)} tokens</p>
-                    <p>{formatCost(run.totalCost)} · {formatDuration(run.latencyMs)}</p>
-                  </div>
-                </Link>
-              ))}
-            </div>
-          )}
-        </CardContent>
-      </Card>
+        </div>
+      ) : (
+        <LiveFeed runs={recentRuns} />
+      )}
+
+      <div className="h-4" />
+      <div className="split-2">
+        <ActivityHeatmap />
+        <StatusDonut data={statusData} />
+      </div>
+
+      <div className="h-4" />
+      <div className="split-2">
+        <TopAgents agents={MOCK_AGENTS} />
+        <TopModels models={MOCK_MODELS} />
+      </div>
     </div>
   );
 }

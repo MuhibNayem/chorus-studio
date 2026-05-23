@@ -1,17 +1,37 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
+import Link from "next/link";
 import { api } from "@/lib/api";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Badge } from "@/components/ui/badge";
-import { Button } from "@/components/ui/button";
-import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
-import { Skeleton } from "@/components/ui/skeleton";
-import { formatTokens, formatCost, formatDuration } from "@/lib/utils";
-import TraceWaterfall from "@/components/waterfall/TraceWaterfall";
-import ProvenanceDag from "@/components/dag/ProvenanceDag";
+import PageHeader from "@/components/shared/PageHeader";
+import RefBadge from "@/components/primitives/RefBadge";
+import RefButton from "@/components/primitives/RefButton";
+import RefTabs from "@/components/primitives/Tabs";
+import Waterfall from "@/components/run-detail/Waterfall";
+import SpanInspector from "@/components/run-detail/SpanInspector";
+import LlmCallList from "@/components/run-detail/LlmCallList";
+import ToolCallList from "@/components/run-detail/ToolCallList";
+import ProvenanceDag from "@/components/run-detail/ProvenanceDag";
+import EvalTab from "@/components/run-detail/EvalTab";
+import RawTab from "@/components/run-detail/RawTab";
+import { RefCard } from "@/components/primitives/RefCard";
+import { formatTokens, formatCost, formatDuration, formatRel, formatHM } from "@/lib/utils";
+import {
+  ArrowLeft, ThumbsUp, ThumbsDown, GitBranch, Cpu, Server,
+  Activity, Sparkles, Wrench, RefreshCw, Plus, Eye,
+} from "lucide-react";
 import type { Run, Span, LlmCall, ToolCall, ProvenanceEntry } from "@/types";
+
+function StatusBadge({ status }: { status: Run["status"] }) {
+  const map: Record<string, { v: string; label: string }> = {
+    SUCCESS: { v: "success", label: "Success" },
+    ERROR: { v: "error", label: "Error" },
+    RUNNING: { v: "warning", label: "Running" },
+  };
+  const m = map[status] || { v: "muted", label: status };
+  return <RefBadge variant={m.v as any} dot>{m.label}</RefBadge>;
+}
 
 export default function RunDetailPage() {
   const params = useParams();
@@ -24,6 +44,9 @@ export default function RunDetailPage() {
   const [provenance, setProvenance] = useState<ProvenanceEntry[]>([]);
   const [loading, setLoading] = useState(true);
   const [streaming, setStreaming] = useState(false);
+  const [feedbackSent, setFeedbackSent] = useState<1 | 0 | null>(null);
+  const [tab, setTab] = useState("trace");
+  const [selectedSpan, setSelectedSpan] = useState<Span | null>(null);
 
   useEffect(() => {
     if (!runId) return;
@@ -44,232 +67,176 @@ export default function RunDetailPage() {
     }).finally(() => setLoading(false));
   }, [runId]);
 
-  // Real-time SSE for running traces
   useEffect(() => {
     if (!streaming || !runId) return;
-    const cleanup = api.streamRun(
+    return api.streamRun(
       runId,
       (newSpan) => {
         setSpans((prev) => {
           const exists = prev.find((s) => s.spanId === newSpan.spanId);
-          if (exists) {
-            return prev.map((s) => (s.spanId === newSpan.spanId ? newSpan : s));
-          }
-          return [...prev, newSpan];
+          return exists ? prev.map((s) => (s.spanId === newSpan.spanId ? newSpan : s)) : [...prev, newSpan];
         });
       },
       () => setStreaming(false)
     );
-    return cleanup;
   }, [streaming, runId]);
+
+  const handleFeedback = (score: 1 | 0) => {
+    api.submitFeedback(runId, score).catch(() => {});
+    setFeedbackSent(score);
+  };
+
+  const llmBySpan = useMemo(() => {
+    const map = new Map<string, LlmCall>();
+    for (const c of llmCalls) map.set(c.spanId, c);
+    return map;
+  }, [llmCalls]);
+
+  const toolBySpan = useMemo(() => {
+    const map = new Map<string, ToolCall>();
+    for (const c of toolCalls) map.set(c.spanId, c);
+    return map;
+  }, [toolCalls]);
 
   if (loading) {
     return (
-      <div className="space-y-4">
-        <Skeleton className="h-8 w-64" />
-        <Skeleton className="h-32 w-full" />
-        <Skeleton className="h-96 w-full" />
+      <div className="space-y-5">
+        <div className="h-6 w-48 bg-muted rounded animate-pulse" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 bg-muted rounded animate-pulse" />)}
+        </div>
+        <div className="h-96 bg-muted rounded animate-pulse" />
       </div>
     );
   }
 
   if (!run) {
     return (
-      <Card>
-        <CardHeader>
-          <CardTitle>Run Not Found</CardTitle>
-        </CardHeader>
-        <CardContent>
-          <p className="text-muted-foreground">No run found with ID {runId}</p>
-        </CardContent>
-      </Card>
+      <RefCard className="max-w-md mx-auto mt-12">
+        <div className="card-pad text-center py-10">
+          <p className="font-semibold">Run not found</p>
+          <p className="mt-1 text-sm text-muted-foreground">No run with ID <code className="mono">{runId}</code></p>
+          <Link href="/runs" className="mt-4 inline-flex items-center gap-1 text-sm text-primary hover:underline">
+            <ArrowLeft size={13} /> All runs
+          </Link>
+        </div>
+      </RefCard>
     );
   }
 
+  const stats = [
+    { lbl: "Tokens", val: formatTokens(run.totalTokens), sub: "+812 vs prev" },
+    { lbl: "Cost", val: formatCost(run.totalCost), sub: "−$0.003" },
+    { lbl: "Latency", val: formatDuration(run.latencyMs), sub: "+184ms" },
+    { lbl: "Spans", val: String(spans.length), sub: `${spans.filter((s) => s.status === "OK").length} OK · ${spans.filter((s) => s.status === "ERROR").length} err` },
+  ];
+
   return (
-    <div className="space-y-4">
-      {/* Header */}
-      <div className="flex items-start justify-between">
-        <div>
-          <div className="flex items-center gap-3">
-            <h2 className="text-2xl font-bold tracking-tight font-mono">{run.runId}</h2>
-            <Badge
-              variant={
-                run.status === "SUCCESS"
-                  ? "success"
-                  : run.status === "ERROR"
-                  ? "destructive"
-                  : "warning"
-              }
-            >
-              {run.status}
-            </Badge>
-            {streaming && (
-              <span className="inline-flex items-center gap-1.5 text-xs text-muted-foreground">
-                <span className="h-2 w-2 rounded-full bg-warning animate-pulse" />
-                Live
-              </span>
-            )}
+    <div className="flex flex-col gap-5">
+      {/* Back link */}
+      <Link
+        href="/runs"
+        className="inline-flex items-center gap-1.5 text-sm text-muted-foreground hover:text-foreground transition-colors"
+        style={{ cursor: "pointer", width: "fit-content" }}
+      >
+        <ArrowLeft size={13} /> All runs
+      </Link>
+
+      {/* Run header */}
+      <div className="page-h" style={{ alignItems: "flex-start" }}>
+        <div style={{ minWidth: 0, flex: 1 }}>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="page-title mono" style={{ fontSize: 22, letterSpacing: "-0.04em", wordBreak: "break-all" }}>
+              run_{run.runId}
+            </h1>
           </div>
-          <p className="text-muted-foreground mt-1">
-            {run.framework} · {run.agentId} · {run.model ?? "—"}
-          </p>
+          <div className="flex items-center gap-2 mt-2 flex-wrap">
+            <StatusBadge status={run.status} />
+            {run.status === "RUNNING" && (
+              <span className="live-pill"><span className="dot" />Streaming</span>
+            )}
+            <RefBadge variant="muted"><GitBranch size={9} />{run.framework}</RefBadge>
+            <RefBadge variant="muted"><Cpu size={9} />{run.agentId}</RefBadge>
+            {run.model && <RefBadge variant="muted"><Server size={9} />{run.model}</RefBadge>}
+            <span className="mute" style={{ fontSize: 11, marginLeft: 6, fontFamily: "var(--font-mono)" }}>
+              started {formatRel(run.startTime)} · {formatHM(run.startTime)}
+            </span>
+          </div>
         </div>
-        <div className="flex gap-2">
-          <Button variant="outline" size="sm" onClick={() => api.submitFeedback(runId, 1)}>
-            👍
-          </Button>
-          <Button variant="outline" size="sm" onClick={() => api.submitFeedback(runId, 0)}>
-            👎
-          </Button>
+
+        <div className="flex items-center gap-1.5">
+          <RefButton
+            variant={feedbackSent === 1 ? "primary" : "outline"}
+            icon={ThumbsUp}
+            disabled={feedbackSent !== null}
+            onClick={() => handleFeedback(1)}
+          >Good</RefButton>
+          <RefButton
+            variant={feedbackSent === 0 ? "danger" : "outline"}
+            icon={ThumbsDown}
+            disabled={feedbackSent !== null}
+            onClick={() => handleFeedback(0)}
+          >Bad</RefButton>
+          <div className="sep-v" />
+          <RefButton variant="outline" icon={RefreshCw}>Replay</RefButton>
+          <RefButton variant="outline" icon={Plus}>To dataset</RefButton>
         </div>
       </div>
 
       {/* Stats */}
-      <div className="grid gap-4 md:grid-cols-4">
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Tokens</p>
-            <p className="text-xl font-bold">{formatTokens(run.totalTokens)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Cost</p>
-            <p className="text-xl font-bold">{formatCost(run.totalCost)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Latency</p>
-            <p className="text-xl font-bold">{formatDuration(run.latencyMs)}</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardContent className="pt-6">
-            <p className="text-sm text-muted-foreground">Spans</p>
-            <p className="text-xl font-bold">{spans.length}</p>
-          </CardContent>
-        </Card>
+      <div className="metric-rail" style={{ marginBottom: 18 }}>
+        {stats.map((s, i) => (
+          <div key={i} className="metric" style={{ padding: "14px 18px" }}>
+            <div className="m-lbl">{s.lbl}</div>
+            <div className="m-val">{s.val}</div>
+            <div className="mute" style={{ fontSize: 10, marginTop: 6, fontFamily: "var(--font-mono)" }}>{s.sub}</div>
+          </div>
+        ))}
       </div>
 
       {/* Tabs */}
-      <Tabs defaultValue="waterfall">
-        <TabsList>
-          <TabsTrigger value="waterfall">Trace Waterfall</TabsTrigger>
-          <TabsTrigger value="provenance">Provenance DAG</TabsTrigger>
-          <TabsTrigger value="llm">LLM Calls ({llmCalls.length})</TabsTrigger>
-          <TabsTrigger value="tools">Tool Calls ({toolCalls.length})</TabsTrigger>
-        </TabsList>
+      <RefTabs
+        tabs={[
+          { key: "trace", label: "Trace", count: spans.length, icon: Activity },
+          { key: "llm", label: "LLM", count: llmCalls.length, icon: Sparkles },
+          { key: "tools", label: "Tools", count: toolCalls.length, icon: Wrench },
+          { key: "provenance", label: "Provenance", icon: GitBranch },
+          { key: "evals", label: "Evals", count: 4, icon: Activity },
+          { key: "raw", label: "Raw", icon: Activity },
+        ]}
+        active={tab}
+        onChange={setTab}
+      />
 
-        <TabsContent value="waterfall">
-          <TraceWaterfall run={run} spans={spans} llmCalls={llmCalls} toolCalls={toolCalls} />
-        </TabsContent>
-
-        <TabsContent value="provenance">
-          <ProvenanceDag entries={provenance} />
-        </TabsContent>
-
-        <TabsContent value="llm">
-          <LlmCallList calls={llmCalls} />
-        </TabsContent>
-
-        <TabsContent value="tools">
-          <ToolCallList calls={toolCalls} />
-        </TabsContent>
-      </Tabs>
-    </div>
-  );
-}
-
-function LlmCallList({ calls }: { calls: LlmCall[] }) {
-  if (calls.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No LLM calls recorded for this run.
-        </CardContent>
-      </Card>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      {calls.map((call) => (
-        <Card key={call.callId}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">{call.model}</CardTitle>
-              <Badge variant="secondary">{call.provider}</Badge>
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="flex gap-4 text-sm text-muted-foreground">
-              <span>{formatTokens(call.inputTokens)} → {formatTokens(call.outputTokens)} tokens</span>
-              <span>{formatCost(call.costUsd)}</span>
-              <span>{formatDuration(call.latencyMs)}</span>
-            </div>
-            {call.prompt && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Prompt</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-48">{call.prompt}</pre>
+      {tab === "trace" && (
+        <div className="split-2">
+          <Waterfall run={run} spans={spans} selected={selectedSpan} onSelect={setSelectedSpan} />
+          {selectedSpan ? (
+            <SpanInspector
+              span={selectedSpan}
+              onClose={() => setSelectedSpan(null)}
+              llmCall={llmBySpan.get(selectedSpan.spanId)}
+              toolCall={toolBySpan.get(selectedSpan.spanId)}
+            />
+          ) : (
+            <RefCard>
+              <div className="card-pad text-center" style={{ padding: "48px 24px", color: "hsl(var(--muted-foreground))" }}>
+                <Eye size={28} style={{ opacity: 0.4, marginBottom: 12 }} />
+                <div style={{ fontSize: 13, fontWeight: 500, color: "hsl(var(--foreground))" }}>Select a span</div>
+                <div style={{ fontSize: 11.5, marginTop: 6, maxWidth: 240, margin: "6px auto 0" }}>
+                  Click any span in the trace to inspect its prompt, tool args, and attributes.
+                </div>
               </div>
-            )}
-            {call.completion && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Completion</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-48">{call.completion}</pre>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
-    </div>
-  );
-}
+            </RefCard>
+          )}
+        </div>
+      )}
 
-function ToolCallList({ calls }: { calls: ToolCall[] }) {
-  if (calls.length === 0) {
-    return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No tool calls recorded for this run.
-        </CardContent>
-      </Card>
-    );
-  }
-  return (
-    <div className="space-y-3">
-      {calls.map((call) => (
-        <Card key={call.callId}>
-          <CardHeader className="pb-2">
-            <div className="flex items-center justify-between">
-              <CardTitle className="text-sm">{call.toolName}</CardTitle>
-              {call.error ? <Badge variant="destructive">Error</Badge> : <Badge variant="success">OK</Badge>}
-            </div>
-          </CardHeader>
-          <CardContent className="space-y-3">
-            <div className="text-sm text-muted-foreground">{formatDuration(call.latencyMs)}</div>
-            {call.args && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Arguments</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto">{call.args}</pre>
-              </div>
-            )}
-            {call.result && (
-              <div>
-                <p className="text-xs font-medium text-muted-foreground mb-1">Result</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto">{call.result}</pre>
-              </div>
-            )}
-            {call.error && (
-              <div>
-                <p className="text-xs font-medium text-destructive mb-1">Error</p>
-                <pre className="text-xs bg-destructive/10 text-destructive p-3 rounded-md overflow-auto">{call.error}</pre>
-              </div>
-            )}
-          </CardContent>
-        </Card>
-      ))}
+      {tab === "llm" && <LlmCallList calls={llmCalls} />}
+      {tab === "tools" && <ToolCallList calls={toolCalls} />}
+      {tab === "provenance" && <ProvenanceDag entries={provenance} />}
+      {tab === "evals" && <EvalTab />}
+      {tab === "raw" && <RawTab run={run} />}
     </div>
   );
 }

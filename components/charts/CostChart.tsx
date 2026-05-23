@@ -8,6 +8,7 @@ import {
   CartesianGrid,
   Tooltip,
   ResponsiveContainer,
+  Legend,
 } from "recharts";
 
 export default function CostChart({
@@ -20,44 +21,68 @@ export default function CostChart({
     label: new Date(d.date).toLocaleDateString(undefined, { month: "short", day: "numeric" }),
   }));
 
+  if (data.length === 0) {
+    return (
+      <div className="flex h-[260px] items-center justify-center text-sm text-muted-foreground">
+        No data yet
+      </div>
+    );
+  }
+
   return (
-    <ResponsiveContainer width="100%" height={300}>
-      <AreaChart data={formatted} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
+    <ResponsiveContainer width="100%" height={260}>
+      <AreaChart data={formatted} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
         <defs>
-          <linearGradient id="colorCost" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(217 91% 60%)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="hsl(217 91% 60%)" stopOpacity={0} />
+          <linearGradient id="gradCost" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#6366f1" stopOpacity={0.25} />
+            <stop offset="95%" stopColor="#6366f1" stopOpacity={0} />
           </linearGradient>
-          <linearGradient id="colorTokens" x1="0" y1="0" x2="0" y2="1">
-            <stop offset="5%" stopColor="hsl(142 71% 45%)" stopOpacity={0.3} />
-            <stop offset="95%" stopColor="hsl(142 71% 45%)" stopOpacity={0} />
+          <linearGradient id="gradTokens" x1="0" y1="0" x2="0" y2="1">
+            <stop offset="5%" stopColor="#10b981" stopOpacity={0.2} />
+            <stop offset="95%" stopColor="#10b981" stopOpacity={0} />
           </linearGradient>
         </defs>
-        <CartesianGrid strokeDasharray="3 3" vertical={false} />
-        <XAxis dataKey="label" tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
-        <YAxis tickLine={false} axisLine={false} tick={{ fontSize: 12 }} />
+        <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.08} />
+        <XAxis
+          dataKey="label"
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}
+        />
+        <YAxis
+          tickLine={false}
+          axisLine={false}
+          tick={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}
+        />
         <Tooltip
-          contentStyle={{ borderRadius: 8, border: "1px solid hsl(214.3 31.8% 91.4%)" }}
+          contentStyle={{
+            borderRadius: 8,
+            border: "1px solid var(--border)",
+            backgroundColor: "var(--card)",
+            color: "var(--card-foreground)",
+            fontSize: 12,
+          }}
           formatter={(value: number, name: string) => [
-            name === "cost" ? `$${value.toFixed(3)}` : value.toLocaleString(),
-            name === "cost" ? "Cost" : "Tokens",
+            name === "cost" ? `$${value.toFixed(4)}` : value.toLocaleString(),
+            name === "cost" ? "Cost (USD)" : "Tokens",
           ]}
         />
+        <Legend wrapperStyle={{ fontSize: 12, paddingTop: 8 }} />
         <Area
           type="monotone"
           dataKey="cost"
-          stroke="hsl(217 91% 60%)"
-          fillOpacity={1}
-          fill="url(#colorCost)"
-          strokeWidth={2}
+          name="cost"
+          stroke="#6366f1"
+          fill="url(#gradCost)"
+          strokeWidth={1.5}
         />
         <Area
           type="monotone"
           dataKey="tokens"
-          stroke="hsl(142 71% 45%)"
-          fillOpacity={1}
-          fill="url(#colorTokens)"
-          strokeWidth={2}
+          name="tokens"
+          stroke="#10b981"
+          fill="url(#gradTokens)"
+          strokeWidth={1.5}
         />
       </AreaChart>
     </ResponsiveContainer>

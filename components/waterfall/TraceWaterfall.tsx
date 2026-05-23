@@ -3,23 +3,17 @@
 import { useState, useMemo } from "react";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
+import { Separator } from "@/components/ui/separator";
 import { formatDuration } from "@/lib/utils";
+import { X } from "lucide-react";
 import type { Run, Span, LlmCall, ToolCall } from "@/types";
 
-const KIND_COLORS: Record<string, string> = {
-  INTERNAL: "bg-slate-400",
-  SERVER: "bg-blue-400",
-  CLIENT: "bg-blue-500",
-  PRODUCER: "bg-purple-400",
-  CONSUMER: "bg-purple-500",
-};
-
-const SPAN_TYPE_COLORS: Record<string, string> = {
-  llm: "bg-llm",
-  tool: "bg-tool",
-  guardrail: "bg-guardrail",
-  rag: "bg-rag",
-  default: "bg-slate-400",
+const SPAN_TYPE_CLASSES: Record<string, { bar: string; dot: string; label: string }> = {
+  llm:       { bar: "bg-blue-500",   dot: "bg-blue-500",   label: "LLM" },
+  tool:      { bar: "bg-emerald-500",dot: "bg-emerald-500",label: "Tool" },
+  guardrail: { bar: "bg-amber-500",  dot: "bg-amber-500",  label: "Guard" },
+  rag:       { bar: "bg-purple-500", dot: "bg-purple-500", label: "RAG" },
+  default:   { bar: "bg-slate-400",  dot: "bg-slate-400",  label: "" },
 };
 
 function getSpanType(span: Span): string {
@@ -31,7 +25,7 @@ function getSpanType(span: Span): string {
   return "default";
 }
 
-function buildSpanTree(spans: Span[]): Span[][] {
+function buildFlatSpanList(spans: Span[]): Array<{ span: Span; depth: number }> {
   const byParent = new Map<string | null, Span[]>();
   for (const span of spans) {
     const parent = span.parentSpanId;
@@ -39,17 +33,16 @@ function buildSpanTree(spans: Span[]): Span[][] {
     byParent.get(parent)!.push(span);
   }
 
-  const rows: Span[][] = [];
+  const result: Array<{ span: Span; depth: number }> = [];
   function walk(parentId: string | null, depth: number) {
     const children = byParent.get(parentId) ?? [];
     for (const span of children) {
-      while (rows.length <= depth) rows.push([]);
-      rows[depth].push(span);
+      result.push({ span, depth });
       walk(span.spanId, depth + 1);
     }
   }
   walk(null, 0);
-  return rows;
+  return result;
 }
 
 export default function TraceWaterfall({
@@ -72,7 +65,7 @@ export default function TraceWaterfall({
   );
   const totalDuration = Math.max(runEnd - runStart, 1);
 
-  const tree = useMemo(() => buildSpanTree(spans), [spans]);
+  const flat = useMemo(() => buildFlatSpanList(spans), [spans]);
 
   const llmBySpan = useMemo(() => {
     const map = new Map<string, LlmCall>();
@@ -88,115 +81,148 @@ export default function TraceWaterfall({
 
   if (spans.length === 0) {
     return (
-      <Card>
-        <CardContent className="py-8 text-center text-muted-foreground">
-          No spans recorded for this run.
-        </CardContent>
-      </Card>
+      <div className="flex items-center justify-center py-16 text-sm text-muted-foreground">
+        No spans recorded for this run.
+      </div>
     );
   }
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-3">
+      {/* Waterfall */}
       <Card>
-        <CardContent className="p-4">
-          <div className="space-y-1">
-            {tree.map((row, depth) =>
-              row.map((span) => {
-                const spanStart = new Date(span.startTime).getTime();
-                const spanEnd = span.endTime ? new Date(span.endTime).getTime() : runEnd;
-                const offset = ((spanStart - runStart) / totalDuration) * 100;
-                const width = ((spanEnd - spanStart) / totalDuration) * 100;
-                const type = getSpanType(span);
-                const llm = llmBySpan.get(span.spanId);
-                const tool = toolBySpan.get(span.spanId);
+        <CardContent className="p-4 overflow-x-auto">
+          {/* Timeline header */}
+          <div className="mb-3 flex items-center gap-3 text-[10px] text-muted-foreground pl-2">
+            <div className="w-44 shrink-0" />
+            <div className="flex-1 flex justify-between">
+              <span>0ms</span>
+              <span>{formatDuration(totalDuration)}</span>
+            </div>
+            <div className="w-16 shrink-0" />
+          </div>
 
-                return (
-                  <div
-                    key={span.spanId}
-                    className="flex items-center gap-3 group cursor-pointer hover:bg-accent/30 rounded px-2 py-1 transition-colors"
-                    style={{ paddingLeft: `${depth * 24 + 8}px` }}
-                    onClick={() => setSelectedSpan(span)}
-                  >
-                    <div className="w-48 shrink-0 truncate text-xs font-medium">
-                      <span className={`inline-block w-2 h-2 rounded-full mr-2 ${SPAN_TYPE_COLORS[type]}`} />
-                      {span.spanName}
-                    </div>
-                    <div className="flex-1 relative h-6 bg-muted/50 rounded overflow-hidden">
-                      <div
-                        className={`absolute top-1 h-4 rounded ${SPAN_TYPE_COLORS[type]} opacity-80 group-hover:opacity-100 transition-opacity`}
-                        style={{ left: `${offset}%`, width: `${Math.max(width, 0.5)}%` }}
-                      />
-                    </div>
-                    <div className="w-20 text-right text-xs text-muted-foreground shrink-0">
-                      {formatDuration(spanEnd - spanStart)}
-                    </div>
-                    {(llm || tool) && (
-                      <div className="w-32 text-right text-xs text-muted-foreground shrink-0 truncate">
-                        {llm && `${llm.inputTokens}→${llm.outputTokens} tok`}
-                        {tool && `${tool.toolName}`}
-                      </div>
-                    )}
+          <div className="space-y-px min-w-[480px]">
+            {flat.map(({ span, depth }) => {
+              const spanStart = new Date(span.startTime).getTime();
+              const spanEnd = span.endTime ? new Date(span.endTime).getTime() : runEnd;
+              const offset = ((spanStart - runStart) / totalDuration) * 100;
+              const width = ((spanEnd - spanStart) / totalDuration) * 100;
+              const type = getSpanType(span);
+              const style = SPAN_TYPE_CLASSES[type];
+              const llm = llmBySpan.get(span.spanId);
+              const tool = toolBySpan.get(span.spanId);
+              const isSelected = selectedSpan?.spanId === span.spanId;
+
+              return (
+                <div
+                  key={span.spanId}
+                  className={`flex items-center gap-3 rounded-md px-2 py-1.5 cursor-pointer transition-colors ${
+                    isSelected
+                      ? "bg-primary/10 ring-1 ring-primary/30"
+                      : "hover:bg-muted/50"
+                  }`}
+                  style={{ paddingLeft: `${depth * 20 + 8}px` }}
+                  onClick={() => setSelectedSpan(isSelected ? null : span)}
+                >
+                  {/* Span name */}
+                  <div className="w-44 shrink-0 flex items-center gap-1.5 min-w-0 truncate">
+                    <span className={`h-2 w-2 rounded-full shrink-0 ${style.dot}`} />
+                    <span className="text-xs font-medium truncate">{span.spanName}</span>
                   </div>
-                );
-              })
-            )}
+
+                  {/* Timeline bar */}
+                  <div className="flex-1 relative h-5 rounded overflow-hidden bg-muted/40">
+                    <div
+                      className={`absolute top-0.5 h-4 rounded ${style.bar} opacity-75`}
+                      style={{
+                        left: `${Math.max(0, offset)}%`,
+                        width: `${Math.max(width, 0.5)}%`,
+                      }}
+                    />
+                  </div>
+
+                  {/* Duration */}
+                  <div className="w-14 text-right text-[11px] text-muted-foreground tabular-nums shrink-0">
+                    {formatDuration(spanEnd - spanStart)}
+                  </div>
+
+                  {/* Annotation */}
+                  <div className="w-24 text-right text-[11px] text-muted-foreground shrink-0 truncate hidden md:block">
+                    {llm && `↕${llm.inputTokens + llm.outputTokens} tok`}
+                    {tool && tool.toolName}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </CardContent>
       </Card>
 
-      {/* Span Detail Panel */}
+      {/* Span detail panel */}
       {selectedSpan && (
-        <Card>
+        <Card className="border-primary/30">
           <CardContent className="p-4 space-y-3">
-            <div className="flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <h3 className="font-semibold">{selectedSpan.spanName}</h3>
-                <Badge variant={selectedSpan.status === "OK" ? "success" : selectedSpan.status === "ERROR" ? "destructive" : "secondary"}>
-                  {selectedSpan.status}
-                </Badge>
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="flex items-center flex-wrap gap-2">
+                  <h3 className="font-semibold text-sm">{selectedSpan.spanName}</h3>
+                  <Badge variant={selectedSpan.status === "OK" ? "success" : selectedSpan.status === "ERROR" ? "destructive" : "secondary"} dot>
+                    {selectedSpan.status}
+                  </Badge>
+                </div>
+                <code className="mt-1 block text-[11px] text-muted-foreground">{selectedSpan.spanId}</code>
               </div>
               <button
-                className="text-xs text-muted-foreground hover:text-foreground"
+                className="text-muted-foreground hover:text-foreground transition-colors shrink-0 mt-0.5"
                 onClick={() => setSelectedSpan(null)}
               >
-                Close
+                <X className="h-4 w-4" />
               </button>
             </div>
-            <div className="text-xs text-muted-foreground font-mono">{selectedSpan.spanId}</div>
+
+            <Separator />
+
             {Object.keys(selectedSpan.attributes).length > 0 && (
               <div>
-                <p className="text-xs font-medium mb-1">Attributes</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-64">
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Attributes</p>
+                <pre className="overflow-auto rounded-lg bg-muted/60 p-3 text-[11px] font-mono max-h-56 leading-relaxed">
                   {JSON.stringify(selectedSpan.attributes, null, 2)}
                 </pre>
               </div>
             )}
+
             {selectedSpan.events.length > 0 && (
               <div>
-                <p className="text-xs font-medium mb-1">Events ({selectedSpan.events.length})</p>
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">
+                  Events ({selectedSpan.events.length})
+                </p>
                 <div className="space-y-1">
                   {selectedSpan.events.map((ev, i) => (
-                    <div key={i} className="text-xs bg-muted p-2 rounded">
-                      <span className="font-medium">{ev.name}</span>{" "}
-                      <span className="text-muted-foreground">{new Date(ev.timestamp).toLocaleTimeString()}</span>
+                    <div key={i} className="flex items-center gap-2 rounded bg-muted/40 px-2.5 py-1.5 text-[11px]">
+                      <span className="font-medium">{ev.name}</span>
+                      <span className="text-muted-foreground tabular-nums">
+                        {new Date(ev.timestamp).toLocaleTimeString()}
+                      </span>
                     </div>
                   ))}
                 </div>
               </div>
             )}
+
             {llmBySpan.get(selectedSpan.spanId) && (
               <div>
-                <p className="text-xs font-medium mb-1">LLM Call</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-48">
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">LLM Call</p>
+                <pre className="overflow-auto rounded-lg bg-muted/60 p-3 text-[11px] font-mono max-h-48 leading-relaxed">
                   {JSON.stringify(llmBySpan.get(selectedSpan.spanId), null, 2)}
                 </pre>
               </div>
             )}
+
             {toolBySpan.get(selectedSpan.spanId) && (
               <div>
-                <p className="text-xs font-medium mb-1">Tool Call</p>
-                <pre className="text-xs bg-muted p-3 rounded-md overflow-auto max-h-48">
+                <p className="text-xs font-medium text-muted-foreground mb-1.5">Tool Call</p>
+                <pre className="overflow-auto rounded-lg bg-muted/60 p-3 text-[11px] font-mono max-h-48 leading-relaxed">
                   {JSON.stringify(toolBySpan.get(selectedSpan.spanId), null, 2)}
                 </pre>
               </div>
