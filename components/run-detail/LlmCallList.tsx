@@ -35,15 +35,32 @@ export default function LlmCallList({ calls }: { calls: LlmCall[] }) {
             </div>
           </div>
           <div className="card-pad flex flex-col gap-2">
-            {c.prompt && (
-              <CodeBlock>
-                <span className="system">system:</span> {c.prompt}
-              </CodeBlock>
-            )}
-            {c.completion && (
-              <CodeBlock style={{ borderColor: "hsl(var(--primary) / 0.4)", background: "hsl(var(--primary) / 0.05)" }}>
-                <span className="role">assistant:</span> {c.completion}
-              </CodeBlock>
+            {c.messages && c.messages.length > 0 ? (
+              <>
+                {c.messages.map((m, i) => (
+                  <CodeBlock key={i} style={m.role === "assistant" ? { borderColor: "hsl(var(--primary) / 0.4)", background: "hsl(var(--primary) / 0.05)" } : undefined}>
+                    <span className={m.role === "system" ? "system" : "role"}>{m.role}:</span> {m.text}
+                  </CodeBlock>
+                ))}
+                {c.completion && (
+                  <CodeBlock style={{ borderColor: "hsl(var(--primary) / 0.4)", background: "hsl(var(--primary) / 0.05)" }}>
+                    <span className="role">assistant:</span> {c.completion}
+                  </CodeBlock>
+                )}
+              </>
+            ) : (
+              <>
+                {c.prompt && (
+                  <CodeBlock>
+                    <span className="system">system:</span> {c.prompt}
+                  </CodeBlock>
+                )}
+                {c.completion && (
+                  <CodeBlock style={{ borderColor: "hsl(var(--primary) / 0.4)", background: "hsl(var(--primary) / 0.05)" }}>
+                    <span className="role">assistant:</span> {c.completion}
+                  </CodeBlock>
+                )}
+              </>
             )}
           </div>
         </RefCard>

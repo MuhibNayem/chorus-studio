@@ -14,6 +14,7 @@ import {
   Settings,
   ChevronsUpDown,
 } from "lucide-react";
+import { useAuth } from "@/hooks/useAuth";
 
 const workspaceItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard, kbd: "G O" },
@@ -37,6 +38,13 @@ function isActive(pathname: string, href: string) {
 
 export default function Sidebar() {
   const pathname = usePathname();
+  const { user } = useAuth();
+
+  const initials = user?.displayName?.slice(0, 2).toUpperCase()
+    || user?.email?.slice(0, 2).toUpperCase()
+    || "??";
+  const name = user?.displayName || user?.email || "Guest";
+  const org = user?.tenantId || "—";
 
   return (
     <aside className="sidebar">
@@ -60,9 +68,9 @@ export default function Sidebar() {
 
       {/* Project switcher */}
       <div className="proj-switcher">
-        <div className="pdot">AO</div>
+        <div className="pdot">{org.slice(0, 2).toUpperCase()}</div>
         <div className="pmeta">
-          <div className="pname">acme-orchestrator</div>
+          <div className="pname">{org}</div>
           <div className="penv">production · us-east-1</div>
         </div>
         <ChevronsUpDown size={13} className="text-muted-foreground shrink-0" />
@@ -121,10 +129,10 @@ export default function Sidebar() {
           <span className="mono tabular">v1.4.2 · connected</span>
         </div>
         <div className="user">
-          <div className="avatar">MN</div>
+          <div className="avatar">{initials}</div>
           <div className="flex-1 min-w-0">
-            <div className="uname">Maya Nakamura</div>
-            <div className="uorg">acme · platform</div>
+            <div className="uname">{name}</div>
+            <div className="uorg">{org} · {user?.permissions?.includes("admin") ? "admin" : "member"}</div>
           </div>
           <ChevronsUpDown size={13} className="text-muted-foreground shrink-0" />
         </div>

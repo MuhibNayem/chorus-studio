@@ -53,16 +53,16 @@ export default function RunDetailPage() {
     setLoading(true);
     Promise.all([
       api.getRun(runId).catch(() => null),
-      api.listSpans(runId).catch(() => []),
-      api.listLlmCalls(runId).catch(() => []),
-      api.listToolCalls(runId).catch(() => []),
-      api.getProvenance(runId).catch(() => []),
+      api.listSpans(runId, 0, 500).catch(() => ({ items: [], total: 0, page: 0, size: 500 })),
+      api.listLlmCalls(runId, 0, 100).catch(() => ({ items: [], total: 0, page: 0, size: 100 })),
+      api.listToolCalls(runId, 0, 100).catch(() => ({ items: [], total: 0, page: 0, size: 100 })),
+      api.getProvenance(runId, 0, 100).catch(() => ({ items: [], total: 0, page: 0, size: 100 })),
     ]).then(([r, s, l, t, p]) => {
       setRun(r);
-      setSpans(s);
-      setLlmCalls(l);
-      setToolCalls(t);
-      setProvenance(p);
+      setSpans(s.items);
+      setLlmCalls(l.items);
+      setToolCalls(t.items);
+      setProvenance(p.items);
       if (r?.status === "RUNNING") setStreaming(true);
     }).finally(() => setLoading(false));
   }, [runId]);
@@ -125,9 +125,9 @@ export default function RunDetailPage() {
   }
 
   const stats = [
-    { lbl: "Tokens", val: formatTokens(run.totalTokens), sub: "+812 vs prev" },
-    { lbl: "Cost", val: formatCost(run.totalCost), sub: "−$0.003" },
-    { lbl: "Latency", val: formatDuration(run.latencyMs), sub: "+184ms" },
+    { lbl: "Tokens", val: formatTokens(run.totalTokens), sub: run.mix ? `${run.mix.find(([t]) => t === "llm")?.[1] ?? 0}% LLM` : "+812 vs prev" },
+    { lbl: "Cost", val: formatCost(run.totalCost), sub: `~$${(run.totalCost / Math.max(run.totalTokens, 1) * 1000).toFixed(4)}/1k tok` },
+    { lbl: "Latency", val: formatDuration(run.latencyMs), sub: `${formatDuration(run.latencyMs)} total` },
     { lbl: "Spans", val: String(spans.length), sub: `${spans.filter((s) => s.status === "OK").length} OK · ${spans.filter((s) => s.status === "ERROR").length} err` },
   ];
 

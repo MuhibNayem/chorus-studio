@@ -1,24 +1,37 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import PageHeader from "@/components/shared/PageHeader";
 import RefButton from "@/components/primitives/RefButton";
 import RefBadge from "@/components/primitives/RefBadge";
 import { RefCard } from "@/components/primitives/RefCard";
+import { api } from "@/lib/api";
+import type { Dataset } from "@/types";
 import { ExternalLink, Plus, Database, PlayCircle, Eye } from "lucide-react";
 
-const DATASETS = [
-  { id: "ds_eval_router_v3", name: "router-v3 regression", examples: 482, updated: "2h ago", owner: "platform", tags: ["regression", "router"] },
-  { id: "ds_guardrail_red", name: "guardrail-red-team", examples: 1240, updated: "1d ago", owner: "safety", tags: ["safety", "jailbreak"] },
-  { id: "ds_obs_smoke", name: "observability-smoke", examples: 64, updated: "5h ago", owner: "platform", tags: ["smoke"] },
-  { id: "ds_research_long", name: "research-long-context", examples: 218, updated: "3d ago", owner: "research", tags: ["long-context"] },
+const MOCK_DATASETS: Dataset[] = [
+  { datasetId: "ds_eval_router_v3", name: "router-v3 regression", examples: 482, updated: "2h ago", owner: "platform", tags: ["regression", "router"] },
+  { datasetId: "ds_guardrail_red", name: "guardrail-red-team", examples: 1240, updated: "1d ago", owner: "safety", tags: ["safety", "jailbreak"] },
+  { datasetId: "ds_obs_smoke", name: "observability-smoke", examples: 64, updated: "5h ago", owner: "platform", tags: ["smoke"] },
+  { datasetId: "ds_research_long", name: "research-long-context", examples: 218, updated: "3d ago", owner: "research", tags: ["long-context"] },
 ];
 
 export default function DatasetsPage() {
+  const [datasets, setDatasets] = useState<Dataset[]>(MOCK_DATASETS);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    api.listDatasets(0, 20)
+      .then((res) => setDatasets(res.items.length > 0 ? res.items : MOCK_DATASETS))
+      .catch(() => setDatasets(MOCK_DATASETS))
+      .finally(() => setLoading(false));
+  }, []);
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Datasets"
-        accent={`/ ${DATASETS.length}`}
+        accent={`/ ${datasets.length}`}
         sub="Curated example sets, sliced from production traces."
         actions={
           <>
@@ -29,8 +42,8 @@ export default function DatasetsPage() {
       />
 
       <div className="grid grid-cols-2 gap-4">
-        {DATASETS.map((d) => (
-          <RefCard key={d.id}>
+        {datasets.map((d) => (
+          <RefCard key={d.datasetId}>
             <div className="card-pad flex flex-col gap-3">
               <div className="flex items-start justify-between">
                 <div style={{ minWidth: 0, flex: 1 }}>
@@ -38,7 +51,7 @@ export default function DatasetsPage() {
                     <Database size={14} style={{ color: "hsl(var(--rag))" }} />
                     <span style={{ fontSize: 14, fontWeight: 600 }}>{d.name}</span>
                   </div>
-                  <div className="mono mute" style={{ fontSize: 11, marginTop: 4 }}>{d.id}</div>
+                  <div className="mono mute" style={{ fontSize: 11, marginTop: 4 }}>{d.datasetId}</div>
                 </div>
                 <RefBadge variant="muted">{d.owner}</RefBadge>
               </div>

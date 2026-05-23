@@ -11,7 +11,7 @@ import TopAgents from "@/components/overview/TopAgents";
 import TopModels from "@/components/overview/TopModels";
 import RefButton from "@/components/primitives/RefButton";
 import { Filter, History, Plus } from "lucide-react";
-import type { DashboardMetrics, Run } from "@/types";
+import type { DashboardMetrics, Run, TopAgent, TopModel } from "@/types";
 
 /* Generate mock sparkline data (24h hourly buckets) */
 function genSpark(base: number, jitter: number, len = 24) {
@@ -20,15 +20,15 @@ function genSpark(base: number, jitter: number, len = 24) {
   );
 }
 
-const MOCK_AGENTS = [
-  { id: "ag_observability_v2", framework: "LangGraph", runs: 38_412, cost: 84.20, p95: 4_120, errors: 124 },
-  { id: "ag_router_v3", framework: "Chorus", runs: 24_180, cost: 41.80, p95: 2_840, errors: 41 },
-  { id: "ag_research", framework: "LangChain", runs: 18_904, cost: 92.40, p95: 14_500, errors: 312 },
-  { id: "ag_eval_judge", framework: "LangGraph", runs: 12_412, cost: 12.10, p95: 1_240, errors: 8 },
-  { id: "ag_summariser", framework: "Chorus", runs: 9_240, cost: 24.80, p95: 3_820, errors: 24 },
+const MOCK_AGENTS: TopAgent[] = [
+  { agentId: "ag_observability_v2", framework: "LangGraph", runs: 38_412, tokens: 2.1e6, cost: 84.20, p95: 4_120, errors: 124 },
+  { agentId: "ag_router_v3", framework: "Chorus", runs: 24_180, tokens: 1.2e6, cost: 41.80, p95: 2_840, errors: 41 },
+  { agentId: "ag_research", framework: "LangChain", runs: 18_904, tokens: 1.8e6, cost: 92.40, p95: 14_500, errors: 312 },
+  { agentId: "ag_eval_judge", framework: "LangGraph", runs: 12_412, tokens: 0.4e6, cost: 12.10, p95: 1_240, errors: 8 },
+  { agentId: "ag_summariser", framework: "Chorus", runs: 9_240, tokens: 0.3e6, cost: 24.80, p95: 3_820, errors: 24 },
 ];
 
-const MOCK_MODELS = [
+const MOCK_MODELS: TopModel[] = [
   { model: "gpt-4o-mini", provider: "openai", runs: 71_240, tokens: 2.1e6, cost: 41.20 },
   { model: "claude-3-5-sonnet", provider: "anthropic", runs: 24_810, tokens: 1.8e6, cost: 184.20 },
   { model: "gpt-4o", provider: "openai", runs: 18_240, tokens: 0.81e6, cost: 38.42 },
@@ -37,17 +37,26 @@ const MOCK_MODELS = [
 
 export default function DashboardPage() {
   const [metrics, setMetrics] = useState<DashboardMetrics | null>(null);
+  const [heatmap, setHeatmap] = useState<number[][] | null>(null);
   const [recentRuns, setRecentRuns] = useState<Run[]>([]);
+  const [topAgents, setTopAgents] = useState<TopAgent[]>(MOCK_AGENTS);
+  const [topModels, setTopModels] = useState<TopModel[]>(MOCK_MODELS);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     Promise.all([
       api.getMetrics().catch(() => null),
+      api.getHeatmap().catch(() => null),
       api.listRuns({ size: "7", sort: "startTime,desc" }).catch(() => null),
+      api.listModels().catch(() => []),
     ])
-      .then(([m, r]) => {
+      .then(([m, h, r, models]) => {
         setMetrics(m);
+        setHeatmap(h);
         setRecentRuns(r?.runs ?? []);
+        if (m?.topAgents?.length) setTopAgents(m.topAgents);
+        if (m?.topModels?.length) setTopModels(m.topModels);
+        else if (models.length) setTopModels(models);
       })
       .finally(() => setLoading(false));
   }, []);
@@ -56,8 +65,8 @@ export default function DashboardPage() {
     {
       lbl: "Runs (24h)",
       val: metrics.totalRuns.toLocaleString(),
-      delta: 12.4,
-      spark: genSpark(85, 30),
+      delta: metrics.runsDelta ?? 12.4,
+      spark: metrics.runsSpark ?? genSpark(85, 30),
       color: "hsl(var(--primary-bright))",
       fill: "hsl(var(--primary) / 0.12)",
     },
@@ -66,8 +75,8 @@ export default function DashboardPage() {
       val: metrics.totalTokens >= 1_000_000
         ? `${(metrics.totalTokens / 1_000_000).toFixed(2)}M`
         : `${(metrics.totalTokens / 1_000).toFixed(1)}k`,
-      delta: 8.2,
-      spark: genSpark(28, 10),
+      delta: metrics.tokensDelta ?? 8.2,
+      spark: metrics.tokensSpark ?? genSpark(28, 10),
       color: "hsl(var(--llm))",
       fill: "hsl(var(--llm) / 0.12)",
     },
@@ -75,18 +84,18 @@ export default function DashboardPage() {
       lbl: "Cost (24h)",
       val: `$${metrics.totalCost.toFixed(2)}`,
       unit: "USD",
-      delta: -3.1,
-      spark: genSpark(3.5, 1.2),
+      delta: metrics.costDelta ?? -3.1,
+      spark: metrics.costSpark ?? genSpark(3.5, 1.2),
       color: "hsl(var(--guardrail))",
       fill: "hsl(var(--guardrail) / 0.12)",
     },
     {
       lbl: "p95 latency",
-      val: metrics.avgLatencyMs >= 1000
-        ? `${(metrics.avgLatencyMs / 1000).toFixed(1)}s`
+      val: metrics.p95LatencyMs && metrics.p95LatencyMs >= 1000
+        ? `${(metrics.p95LatencyMs / 1000).toFixed(1)}s`
         : `${Math.round(metrics.avgLatencyMs)}ms`,
-      delta: 5.4,
-      spark: genSpark(2400, 300),
+      delta: metrics.latencyDelta ?? 5.4,
+      spark: metrics.latencySpark ?? genSpark(2400, 300),
       color: "hsl(var(--tool))",
       fill: "hsl(var(--tool) / 0.12)",
     },
@@ -144,14 +153,14 @@ export default function DashboardPage() {
 
       <div className="h-4" />
       <div className="split-2">
-        <ActivityHeatmap />
+        <ActivityHeatmap data={heatmap ?? undefined} />
         <StatusDonut data={statusData} />
       </div>
 
       <div className="h-4" />
       <div className="split-2">
-        <TopAgents agents={MOCK_AGENTS} />
-        <TopModels models={MOCK_MODELS} />
+        <TopAgents agents={topAgents.map(a => ({ id: a.agentId, framework: a.framework ?? "", runs: a.runs, cost: a.cost, p95: a.p95 ?? 0, errors: a.errors ?? 0 }))} />
+        <TopModels models={topModels.map(m => ({ model: m.model, provider: m.provider ?? "", runs: m.runs, tokens: m.tokens, cost: m.cost }))} />
       </div>
     </div>
   );

@@ -7,6 +7,16 @@ import { formatDuration } from "@/lib/utils";
 import { Wrench } from "lucide-react";
 import type { ToolCall } from "@/types";
 
+function formatValue(v: unknown): string {
+  if (v === null || v === undefined) return "—";
+  if (typeof v === "string") return v;
+  try {
+    return JSON.stringify(v, null, 2);
+  } catch {
+    return String(v);
+  }
+}
+
 export default function ToolCallList({ calls }: { calls: ToolCall[] }) {
   if (calls.length === 0) {
     return (
@@ -33,11 +43,11 @@ export default function ToolCallList({ calls }: { calls: ToolCall[] }) {
           <div className="card-pad flex flex-col gap-2">
             <div>
               <div className="mute" style={{ fontSize: 10, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>arguments</div>
-              <CodeBlock>{c.args || "—"}</CodeBlock>
+              <CodeBlock>{formatValue(c.args as unknown)}</CodeBlock>
             </div>
             <div>
               <div className="mute" style={{ fontSize: 10, marginBottom: 4, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600 }}>result</div>
-              <CodeBlock>{c.result || c.error || "—"}</CodeBlock>
+              <CodeBlock>{c.error ? c.error : formatValue(c.result as unknown)}</CodeBlock>
             </div>
           </div>
         </RefCard>

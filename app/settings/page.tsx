@@ -1,10 +1,28 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import PageHeader from "@/components/shared/PageHeader";
 import { RefCard, CardHeader } from "@/components/primitives/RefCard";
 import CodeBlock from "@/components/shared/CodeBlock";
+import { api } from "@/lib/api";
+import type { RetentionPolicy } from "@/types";
+
+const MOCK_RETENTION: RetentionPolicy[] = [
+  { tier: "Traces", duration: "30 days", pct: 0.7 },
+  { tier: "LLM I/O", duration: "14 days", pct: 0.45 },
+  { tier: "Tool I/O", duration: "30 days", pct: 0.7 },
+  { tier: "Annotations", duration: "forever", pct: 1.0 },
+];
 
 export default function SettingsPage() {
+  const [policies, setPolicies] = useState<RetentionPolicy[]>(MOCK_RETENTION);
+
+  useEffect(() => {
+    api.getRetentionPolicies()
+      .then((res) => setPolicies(res.length > 0 ? res : MOCK_RETENTION))
+      .catch(() => setPolicies(MOCK_RETENTION));
+  }, []);
+
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
@@ -32,19 +50,14 @@ export default function SettingsPage() {
         <RefCard>
           <CardHeader title="Retention" sub="Hot storage windows by tier" />
           <div className="card-pad flex flex-col gap-3">
-            {[
-              ["Traces", "30 days", 0.7],
-              ["LLM I/O", "14 days", 0.45],
-              ["Tool I/O", "30 days", 0.7],
-              ["Annotations", "forever", 1.0],
-            ].map(([k, v, p]) => (
-              <div key={k} className="flex flex-col gap-1">
+            {policies.map((p) => (
+              <div key={p.tier} className="flex flex-col gap-1">
                 <div className="flex items-center justify-between" style={{ fontSize: 12 }}>
-                  <span>{k}</span>
-                  <span className="mono tabular mute">{v}</span>
+                  <span>{p.tier}</span>
+                  <span className="mono tabular mute">{p.duration}</span>
                 </div>
                 <div style={{ height: 4, background: "hsl(var(--muted) / 0.5)", borderRadius: 2, overflow: "hidden" }}>
-                  <div style={{ width: `${(p as number) * 100}%`, height: "100%", background: "hsl(var(--primary))" }} />
+                  <div style={{ width: `${p.pct * 100}%`, height: "100%", background: "hsl(var(--primary))" }} />
                 </div>
               </div>
             ))}

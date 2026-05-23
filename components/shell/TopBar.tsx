@@ -2,9 +2,11 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { Search, RefreshCw, Bell, Sun, Moon } from "lucide-react";
+import { useState } from "react";
+import { Search, RefreshCw, Bell, Sun, Moon, LogOut, User, Building2 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useState } from "react";
+import { useEffect } from "react";
+import { useAuth } from "@/hooks/useAuth";
 
 function useCrumbs(pathname: string) {
   const segs: { label: React.ReactNode; href?: string; cur?: boolean }[] = [
@@ -38,6 +40,8 @@ export default function TopBar({ onOpenCmd }: { onOpenCmd: () => void }) {
   const crumbs = useCrumbs(pathname);
   const { setTheme, resolvedTheme } = useTheme();
   const [mounted, setMounted] = useState(false);
+  const { user, logout, isAuthenticated } = useAuth();
+  const [menuOpen, setMenuOpen] = useState(false);
 
   useEffect(() => setMounted(true), []);
 
@@ -84,6 +88,84 @@ export default function TopBar({ onOpenCmd }: { onOpenCmd: () => void }) {
           >
             {resolvedTheme === "dark" ? <Sun size={15} /> : <Moon size={15} />}
           </button>
+        )}
+
+        {/* User menu */}
+        {isAuthenticated && user && (
+          <div className="relative ml-1">
+            <button
+              className="flex items-center gap-2 px-2 py-1 rounded-md hover:bg-muted/50 transition-colors"
+              onClick={() => setMenuOpen(!menuOpen)}
+            >
+              <div
+                className="flex items-center justify-center rounded-full text-white font-bold text-[10px]"
+                style={{
+                  width: 24,
+                  height: 24,
+                  background: "linear-gradient(135deg, hsl(var(--tool)), hsl(var(--llm)))",
+                }}
+              >
+                {user.displayName?.slice(0, 2).toUpperCase() || user.email.slice(0, 2).toUpperCase()}
+              </div>
+              <span className="text-xs font-medium hidden sm:block" style={{ color: "hsl(var(--foreground))" }}>
+                {user.displayName || user.email}
+              </span>
+            </button>
+
+            {menuOpen && (
+              <>
+                <div
+                  className="fixed inset-0 z-40"
+                  onClick={() => setMenuOpen(false)}
+                />
+                <div
+                  className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[200px] rounded-lg border shadow-lg"
+                  style={{
+                    background: "hsl(var(--card))",
+                    borderColor: "hsl(var(--border))",
+                  }}
+                >
+                  <div className="p-3 border-b" style={{ borderColor: "hsl(var(--border))" }}>
+                    <div className="flex items-center gap-2">
+                      <div
+                        className="flex items-center justify-center rounded-full text-white font-bold text-[11px]"
+                        style={{
+                          width: 28,
+                          height: 28,
+                          background: "linear-gradient(135deg, hsl(var(--tool)), hsl(var(--llm)))",
+                        }}
+                      >
+                        {user.displayName?.slice(0, 2).toUpperCase() || user.email.slice(0, 2).toUpperCase()}
+                      </div>
+                      <div className="min-w-0">
+                        <div className="text-xs font-medium truncate">{user.displayName || user.email}</div>
+                        <div className="text-[10px] truncate" style={{ color: "hsl(var(--muted-foreground))" }}>
+                          {user.email}
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="p-1">
+                    <div className="flex items-center gap-2 px-2 py-1.5 text-xs" style={{ color: "hsl(var(--muted-foreground))" }}>
+                      <Building2 size={12} />
+                      <span className="font-mono text-[10px]">{user.tenantId}</span>
+                    </div>
+                    <button
+                      className="flex items-center gap-2 w-full px-2 py-1.5 text-xs rounded-md hover:bg-muted/50 transition-colors"
+                      style={{ color: "hsl(var(--error))" }}
+                      onClick={() => {
+                        setMenuOpen(false);
+                        logout();
+                      }}
+                    >
+                      <LogOut size={12} />
+                      Sign out
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
         )}
       </div>
     </div>

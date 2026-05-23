@@ -16,6 +16,7 @@ const spanIcon = {
 } as const;
 
 function getSpanType(span: Span): string {
+  if (span.spanType) return span.spanType;
   const name = span.spanName.toLowerCase();
   if (name.includes("llm") || name.includes("chat") || span.attributes["gen_ai.system"]) return "llm";
   if (name.includes("tool") || span.attributes["gen_ai.tool.name"]) return "tool";
@@ -97,8 +98,8 @@ export default function Waterfall({
           const isSel = selected?.spanId === span.spanId;
           const type = getSpanType(span);
           const Ic = (spanIcon as any)[type] || spanIcon.default;
-          const ft = span.attributes["gen_ai.time_to_first_token"]
-            ? ((new Date(span.attributes["gen_ai.time_to_first_token"] as string).getTime() - spanStart) / (spanEnd - spanStart)) * 100
+          const ft = span.firstTokenAt
+            ? ((new Date(span.firstTokenAt).getTime() - spanStart) / (spanEnd - spanStart)) * 100
             : null;
 
           const indent = ancestorsLast.slice(1).map((al) => al ? "   " : "│  ").join("");

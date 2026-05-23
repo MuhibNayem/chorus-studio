@@ -1,10 +1,11 @@
 "use client";
 
 import { RefCard, CardHeader } from "@/components/primitives/RefCard";
+import RefBadge from "@/components/primitives/RefBadge";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
-function generateHeatmap() {
+function generateHeatmap(): number[][] {
   return Array.from({ length: 7 }, (_, day) =>
     Array.from({ length: 24 }, (_, hr) => {
       if (hr < 5 || hr > 22) return Math.random() < 0.5 ? 0 : 1;
@@ -16,8 +17,16 @@ function generateHeatmap() {
   );
 }
 
-export default function ActivityHeatmap() {
-  const heatmap = generateHeatmap();
+function normalizeGrid(data: number[][]): number[][] {
+  const flat = data.flat();
+  const max = Math.max(...flat, 1);
+  return data.map((row) => row.map((v) => Math.min(4, Math.round((v / max) * 4))));
+}
+
+export default function ActivityHeatmap({ data }: { data?: number[][] }) {
+  const heatmap = data && data.length === 7 && data[0]?.length === 24
+    ? normalizeGrid(data)
+    : generateHeatmap();
 
   return (
     <RefCard>
@@ -47,7 +56,7 @@ export default function ActivityHeatmap() {
                       borderRadius: 2,
                       background: v === 0 ? "hsl(var(--muted) / 0.4)" : `hsl(var(--primary) / ${0.18 + v * 0.18})`,
                     }}
-                    title={`${day} ${String(hi).padStart(2, "0")}:00 — ${v * 200 + Math.floor(Math.random() * 120)} runs`}
+                    title={`${day} ${String(hi).padStart(2, "0")}:00 — ${v} runs`}
                   />
                 ))}
               </div>
@@ -71,5 +80,3 @@ export default function ActivityHeatmap() {
     </RefCard>
   );
 }
-
-import RefBadge from "@/components/primitives/RefBadge";

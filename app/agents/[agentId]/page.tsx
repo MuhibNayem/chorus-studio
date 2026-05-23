@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import { useParams } from "next/navigation";
 import PageHeader from "@/components/shared/PageHeader";
@@ -15,7 +15,9 @@ import AgentAlertsTab from "@/components/agents/AgentAlertsTab";
 import AgentSettingsTab from "@/components/agents/AgentSettingsTab";
 import Sparkline from "@/components/primitives/Sparkline";
 import { formatTokens, formatDuration, formatRel } from "@/lib/utils";
+import { api } from "@/lib/api";
 import { ArrowLeft, RefreshCw, ExternalLink, Pause, PlayCircle, Cpu, GitBranch, Server } from "lucide-react";
+import type { Agent, AgentMetrics, AgentToolUsage, AgentModelDistribution, AgentDeployment, AgentAlert } from "@/types";
 
 function _genSpark(base: number, jitter: number, len: number) {
   return Array.from({ length: len }, (_, i) =>
@@ -23,8 +25,8 @@ function _genSpark(base: number, jitter: number, len: number) {
   );
 }
 
-const AGENTS = [
-  {
+const MOCK_AGENTS: Record<string, any> = {
+  ag_observability_v2: {
     id: "ag_observability_v2", name: "Observability Copilot",
     description: "Internal copilot that answers questions about agent traces, costs, and guardrails.",
     framework: "LangGraph", runtime: "chorus-engine4j 1.4.2", owner: "platform", ownerEmail: "platform@acme.io",
@@ -57,7 +59,7 @@ const AGENTS = [
       { sev: "warning", title: "p95 latency > 5s on Sonnet calls", when: "18m ago" },
     ],
   },
-  {
+  ag_router_v3: {
     id: "ag_router_v3", name: "Model Router",
     description: "Routes incoming requests to the cheapest model that meets quality bar.",
     framework: "Chorus", runtime: "chorus-engine4j 1.4.2", owner: "platform", ownerEmail: "platform@acme.io",
@@ -82,7 +84,7 @@ const AGENTS = [
     ],
     alerts: [],
   },
-  {
+  ag_research: {
     id: "ag_research", name: "Research Agent",
     description: "Long-context research and summarisation across internal docs + the web.",
     framework: "LangChain", runtime: "langchain-core 0.3", owner: "research", ownerEmail: "research@acme.io",
@@ -111,7 +113,7 @@ const AGENTS = [
       { sev: "warning", title: "p95 latency > 10s on long_context runs", when: "38m ago" },
     ],
   },
-];
+};
 
 function statusToVariant(s: string) {
   return s === "healthy" ? "success" : s === "degraded" ? "warning" : "error";
@@ -120,16 +122,68 @@ function statusToVariant(s: string) {
 export default function AgentDetailPage() {
   const params = useParams();
   const agentId = params.agentId as string;
-  const agent = AGENTS.find((a) => a.id === agentId) || AGENTS[0];
+  const [agent, setAgent] = useState<Agent | null>(null);
+  const [metrics, setMetrics] = useState<AgentMetrics | null>(null);
+  const [tools, setTools] = useState<AgentToolUsage[]>([]);
+  const [models, setModels] = useState<AgentModelDistribution[]>([]);
+  const [deployments, setDeployments] = useState<AgentDeployment[]>([]);
+  const [alerts, setAlerts] = useState<AgentAlert[]>([]);
+  const [loading, setLoading] = useState(true);
   const [tab, setTab] = useState("overview");
   const [paused, setPaused] = useState(false);
 
+  const mock = MOCK_AGENTS[agentId] || MOCK_AGENTS["ag_observability_v2"];
+
+  useEffect(() => {
+    if (!agentId) return;
+    setLoading(true);
+    Promise.all([
+      api.getAgent(agentId).catch(() => null),
+      api.getAgentMetrics(agentId).catch(() => null),
+      api.getAgentTools(agentId).catch(() => []),
+      api.getAgentModels(agentId).catch(() => []),
+      api.getAgentDeployments(agentId).catch(() => []),
+      api.getAgentAlerts(agentId).catch(() => []),
+    ]).then(([a, m, t, mo, d, al]) => {
+      if (a) setAgent(a);
+      if (m) setMetrics(m);
+      if (t.length) setTools(t);
+      if (mo.length) setModels(mo);
+      if (d.length) setDeployments(d);
+      if (al.length) setAlerts(al);
+    }).finally(() => setLoading(false));
+  }, [agentId]);
+
+  const displayAgent = agent || mock;
+  const displayMetrics = metrics || {
+    runs24hSpark: mock.runs24hSpark,
+    latencySpark: mock.latencySpark,
+    costSpark: mock.costSpark,
+    errorSpark: mock.errorSpark,
+  };
+  const displayTools = tools.length ? tools : mock.tools;
+  const displayModels = models.length ? models : mock.models;
+  const displayDeployments = deployments.length ? deployments : mock.deployments;
+  const displayAlerts = alerts.length ? alerts : mock.alerts;
+
   const stats = [
-    { lbl: "Runs (24h)", val: formatTokens(agent.runs24h), sub: `${(agent.runs24h / 24 / 60).toFixed(1)}/min avg`, spark: agent.runs24hSpark, color: "hsl(var(--primary-bright))" },
-    { lbl: "p95 latency", val: formatDuration(agent.latencyP95), sub: `p50 ${formatDuration(agent.latencyP50)} · p99 ${formatDuration(agent.latencyP99)}`, spark: agent.latencySpark, color: "hsl(var(--tool))" },
-    { lbl: "Cost (24h)", val: "$" + agent.cost24h.toFixed(2), sub: `$${(agent.cost24h / agent.runs24h * 1000).toFixed(3)}/1k runs`, spark: agent.costSpark, color: "hsl(var(--guardrail))" },
-    { lbl: "Error rate", val: agent.errorRate.toFixed(2) + "%", sub: `${agent.errors24h} errors`, spark: agent.errorSpark, color: agent.errorRate > 1 ? "hsl(var(--error))" : "hsl(var(--llm))" },
+    { lbl: "Runs (24h)", val: formatTokens(displayAgent.runs24h ?? 0), sub: `${((displayAgent.runs24h ?? 0) / 24 / 60).toFixed(1)}/min avg`, spark: displayMetrics.runs24hSpark, color: "hsl(var(--primary-bright))" },
+    { lbl: "p95 latency", val: formatDuration(displayAgent.latencyP95 ?? 0), sub: `p50 ${formatDuration(displayAgent.latencyP50 ?? 0)} · p99 ${formatDuration(displayAgent.latencyP99 ?? 0)}`, spark: displayMetrics.latencySpark, color: "hsl(var(--tool))" },
+    { lbl: "Cost (24h)", val: "$" + (displayAgent.cost24h ?? 0).toFixed(2), sub: `$${((displayAgent.cost24h ?? 0) / Math.max(displayAgent.runs24h ?? 1, 1) * 1000).toFixed(3)}/1k runs`, spark: displayMetrics.costSpark, color: "hsl(var(--guardrail))" },
+    { lbl: "Error rate", val: (displayAgent.errorRate ?? 0).toFixed(2) + "%", sub: `${displayAgent.errors24h ?? 0} errors`, spark: displayMetrics.errorSpark, color: (displayAgent.errorRate ?? 0) > 1 ? "hsl(var(--error))" : "hsl(var(--llm))" },
   ];
+
+  if (loading) {
+    return (
+      <div className="space-y-5">
+        <div className="h-6 w-48 bg-muted rounded animate-pulse" />
+        <div className="grid grid-cols-2 gap-4 lg:grid-cols-4">
+          {Array.from({ length: 4 }).map((_, i) => <div key={i} className="h-24 bg-muted rounded animate-pulse" />)}
+        </div>
+        <div className="h-96 bg-muted rounded animate-pulse" />
+      </div>
+    );
+  }
 
   return (
     <div className="flex flex-col gap-4">
@@ -142,31 +196,31 @@ export default function AgentDetailPage() {
           <div className="flex items-center gap-3 flex-wrap">
             <div style={{
               width: 40, height: 40, borderRadius: 8, flexShrink: 0,
-              background: `hsl(var(--${agent.status === "healthy" ? "tool" : agent.status === "degraded" ? "warning" : "error"}) / 0.18)`,
-              color: `hsl(var(--${agent.status === "healthy" ? "tool" : agent.status === "degraded" ? "warning" : "error"}))`,
+              background: `hsl(var(--${displayAgent.status === "healthy" ? "tool" : displayAgent.status === "degraded" ? "warning" : "error"}) / 0.18)`,
+              color: `hsl(var(--${displayAgent.status === "healthy" ? "tool" : displayAgent.status === "degraded" ? "warning" : "error"}))`,
               display: "grid", placeItems: "center",
             }}>
               <Cpu size={20} />
             </div>
             <div style={{ minWidth: 0 }}>
-              <h1 className="page-title" style={{ fontSize: 26, lineHeight: 1.05 }}>{agent.name}</h1>
+              <h1 className="page-title" style={{ fontSize: 26, lineHeight: 1.05 }}>{displayAgent.name}</h1>
               <div className="flex items-center gap-2 mt-1.5 flex-wrap" style={{ fontSize: 11.5 }}>
-                <code className="mono mute">{agent.id}</code>
+                <code className="mono mute">{displayAgent.agentId}</code>
                 <span className="mute">·</span>
-                <code className="mono mute">{agent.version}</code>
+                <code className="mono mute">{displayAgent.version}</code>
                 <span className="mute">·</span>
-                <span className="mute">deployed {formatRel(agent.deployedAt)} by <code className="mono">{agent.deployedBy}</code></span>
+                <span className="mute">deployed {formatRel(displayAgent.deployedAt ?? "")} by <code className="mono">{displayAgent.deployedBy}</code></span>
               </div>
             </div>
           </div>
 
           <div className="flex items-center gap-2 mt-3 flex-wrap">
-            <RefBadge variant={statusToVariant(agent.status) as any} dot>{agent.status}</RefBadge>
+            <RefBadge variant={statusToVariant(displayAgent.status) as any} dot>{displayAgent.status}</RefBadge>
             {paused && <RefBadge variant="warning" dot>paused</RefBadge>}
-            <RefBadge variant="muted"><GitBranch size={9} />{agent.framework}</RefBadge>
-            <RefBadge variant="muted"><Server size={9} />{agent.runtime}</RefBadge>
-            <RefBadge variant="primary"><Cpu size={9} />{agent.owner}</RefBadge>
-            {agent.tags.map((t: string) => <RefBadge key={t} variant="muted">{t}</RefBadge>)}
+            <RefBadge variant="muted"><GitBranch size={9} />{displayAgent.framework}</RefBadge>
+            <RefBadge variant="muted"><Server size={9} />{displayAgent.runtime}</RefBadge>
+            <RefBadge variant="primary"><Cpu size={9} />{displayAgent.owner}</RefBadge>
+            {displayAgent.tags.map((t: string) => <RefBadge key={t} variant="muted">{t}</RefBadge>)}
           </div>
         </div>
 
@@ -200,21 +254,21 @@ export default function AgentDetailPage() {
         tabs={[
           { key: "overview", label: "Overview", icon: Activity },
           { key: "runs", label: "Runs", count: 3, icon: List },
-          { key: "deployments", label: "Deployments", count: agent.deployments.length, icon: GitBranch },
+          { key: "deployments", label: "Deployments", count: displayDeployments.length, icon: GitBranch },
           { key: "integration", label: "Integration", icon: Server },
-          { key: "alerts", label: "Alerts", count: agent.alerts.length || undefined, icon: Bell },
+          { key: "alerts", label: "Alerts", count: displayAlerts.length || undefined, icon: Bell },
           { key: "settings", label: "Settings", icon: Settings },
         ]}
         active={tab}
         onChange={setTab}
       />
 
-      {tab === "overview" && <AgentOverviewTab agent={agent} />}
-      {tab === "runs" && <AgentRunsTab agentId={agent.id} />}
-      {tab === "deployments" && <AgentDeploymentsTab deployments={agent.deployments} />}
-      {tab === "integration" && <AgentSnippet agent={agent} />}
-      {tab === "alerts" && <AgentAlertsTab alerts={agent.alerts} />}
-      {tab === "settings" && <AgentSettingsTab agent={agent} />}
+      {tab === "overview" && <AgentOverviewTab agent={{ ...displayAgent, tools: displayTools, models: displayModels, runs24hSpark: displayMetrics.runs24hSpark, latencySpark: displayMetrics.latencySpark, costSpark: displayMetrics.costSpark, errorSpark: displayMetrics.errorSpark }} />}
+      {tab === "runs" && <AgentRunsTab agentId={displayAgent.agentId} />}
+      {tab === "deployments" && <AgentDeploymentsTab deployments={displayDeployments} />}
+      {tab === "integration" && <AgentSnippet agent={{ id: displayAgent.agentId, framework: displayAgent.framework, version: displayAgent.version }} />}
+      {tab === "alerts" && <AgentAlertsTab alerts={displayAlerts} />}
+      {tab === "settings" && <AgentSettingsTab agent={displayAgent} />}
     </div>
   );
 }
