@@ -7,20 +7,13 @@ import CodeBlock from "@/components/shared/CodeBlock";
 import { api } from "@/lib/api";
 import type { RetentionPolicy } from "@/types";
 
-const MOCK_RETENTION: RetentionPolicy[] = [
-  { tier: "Traces", duration: "30 days", pct: 0.7 },
-  { tier: "LLM I/O", duration: "14 days", pct: 0.45 },
-  { tier: "Tool I/O", duration: "30 days", pct: 0.7 },
-  { tier: "Annotations", duration: "forever", pct: 1.0 },
-];
-
 export default function SettingsPage() {
-  const [policies, setPolicies] = useState<RetentionPolicy[]>(MOCK_RETENTION);
+  const [policies, setPolicies] = useState<RetentionPolicy[]>([]);
 
   useEffect(() => {
     api.getRetentionPolicies()
-      .then((res) => setPolicies(res.length > 0 ? res : MOCK_RETENTION))
-      .catch(() => setPolicies(MOCK_RETENTION));
+      .then((res) => setPolicies(res))
+      .catch(() => setPolicies([]));
   }, []);
 
   return (
@@ -50,6 +43,9 @@ export default function SettingsPage() {
         <RefCard>
           <CardHeader title="Retention" sub="Hot storage windows by tier" />
           <div className="card-pad flex flex-col gap-3">
+            {policies.length === 0 && (
+              <div style={{ color: "hsl(var(--muted-foreground))", fontSize: 12 }}>No retention policies configured.</div>
+            )}
             {policies.map((p) => (
               <div key={p.tier} className="flex flex-col gap-1">
                 <div className="flex items-center justify-between" style={{ fontSize: 12 }}>

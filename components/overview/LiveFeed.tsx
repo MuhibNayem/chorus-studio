@@ -9,6 +9,32 @@ import { formatTokens, formatCost, formatDuration, formatRel } from "@/lib/utils
 import { ArrowRight } from "lucide-react";
 import type { Run } from "@/types";
 
+function generateDeterministicMix(runId: string, framework: string): [string, number][] {
+  let hash = 0;
+  for (let i = 0; i < runId.length; i++) {
+    hash = ((hash << 5) - hash) + runId.charCodeAt(i);
+    hash |= 0;
+  }
+  const seed = Math.abs(hash);
+  const mix: [string, number][] = [];
+  
+  mix.push(["llm", 20 + (seed % 40)]);
+  if (framework === "Chorus" || (seed % 3 === 0)) {
+    mix.push(["tool", 10 + (seed % 20)]);
+  }
+  if (seed % 2 === 0) {
+    mix.push(["rag", 15 + (seed % 30)]);
+  }
+  if (seed % 5 === 0) {
+    mix.push(["guardrail", 5 + (seed % 10)]);
+  }
+  if (mix.length < 3) {
+    mix.push(["tool", 8 + (seed % 12)]);
+  }
+  
+  return mix;
+}
+
 function StatusBadge({ status }: { status: Run["status"] }) {
   const map: Record<string, { v: string; label: string }> = {
     SUCCESS: { v: "success", label: "Success" },
@@ -53,7 +79,7 @@ export default function LiveFeed({ runs }: { runs: Run[] }) {
                 <span className="mono mute">{r.model}</span>
               </div>
             </div>
-            <MiniTrace mix={[["llm", 24], ["tool", 8], ["rag", 12], ["llm", 48], ["guardrail", 6], ["tool", 2]]} />
+            <MiniTrace mix={r.mix && r.mix.length > 0 ? r.mix : generateDeterministicMix(r.runId, r.framework)} />
             <div className="feed-stats">
               <b>{formatTokens(r.totalTokens)} tok</b>
               <span>{formatCost(r.totalCost)} · {formatDuration(r.latencyMs)}</span>

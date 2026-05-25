@@ -12,15 +12,27 @@ export default function StatusDonut({ data }: {
     RUNNING: "hsl(var(--warning))",
   };
 
+  if (total === 0) {
+    return (
+      <RefCard>
+        <CardHeader title="Status" sub="Last 24h outcomes" />
+        <div className="card-pad" style={{ color: "hsl(var(--muted-foreground))", fontSize: 13 }}>
+          No runs yet in this window.
+        </div>
+      </RefCard>
+    );
+  }
+
   let cur = 0;
   const stops = data.map((d) => {
     const pct = (d.count / total) * 100;
-    const seg = `${colors[d.status]} ${cur}% ${cur + pct}%`;
+    const seg = `${colors[d.status] ?? "hsl(var(--muted))"} ${cur}% ${cur + pct}%`;
     cur += pct;
     return seg;
   }).join(", ");
 
-  const okPct = data[0]?.count ? (100 - (data[1]?.count / total * 100)).toFixed(1) : "100.0";
+  const successCount = data.find((d) => d.status === "SUCCESS")?.count ?? 0;
+  const okPct = ((successCount / total) * 100).toFixed(1);
 
   return (
     <RefCard>

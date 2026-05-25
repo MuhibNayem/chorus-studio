@@ -3,6 +3,9 @@
 #
 # Requires Chorus Observe Server to be running separately.
 # Set CHORUS_API_URL to point to your backend.
+#
+# If running alongside the backend in Docker, both services share
+# the chorus-network defined in chorus-observe-server/docker-compose.yml.
 
 services:
   chorus-studio:
@@ -10,14 +13,17 @@ services:
       context: .
       dockerfile: Dockerfile
       args:
-        CHORUS_API_URL: ${CHORUS_API_URL:-http://localhost:8080}
+        CHORUS_API_URL: ${CHORUS_API_URL:-http://chorus-observe:8080}
     ports:
       - "3000:3000"
     environment:
-      CHORUS_API_URL: ${CHORUS_API_URL:-http://localhost:8080}
+      # Runtime env — overrides the build-time bake. Uses Docker service name so
+      # the Next.js server-side API routes can reach Spring Boot within the network.
+      CHORUS_API_URL: ${CHORUS_API_URL:-http://chorus-observe:8080}
     networks:
       - chorus-network
 
 networks:
   chorus-network:
     external: true
+    name: chorusprism_chorus-network

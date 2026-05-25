@@ -1,29 +1,24 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { useRouter } from "next/navigation";
 import PageHeader from "@/components/shared/PageHeader";
 import RefButton from "@/components/primitives/RefButton";
 import RefBadge from "@/components/primitives/RefBadge";
 import { RefCard } from "@/components/primitives/RefCard";
 import { api } from "@/lib/api";
 import type { Evaluator } from "@/types";
-import { Plus } from "lucide-react";
-
-const MOCK_EVALUATORS: Evaluator[] = [
-  { evaluatorId: "ev_helpfulness", name: "helpfulness", score24h: 0.84, runs: 12_420, kind: "llm-judge" },
-  { evaluatorId: "ev_groundedness", name: "groundedness", score24h: 0.91, runs: 12_420, kind: "llm-judge" },
-  { evaluatorId: "ev_latency_sla", name: "latency < 3s", score24h: 0.78, runs: 12_420, kind: "rule" },
-  { evaluatorId: "ev_no_pii", name: "no PII in completion", score24h: 0.99, runs: 12_420, kind: "regex" },
-];
+import { Plus, RotateCcw } from "lucide-react";
 
 export default function EvaluatorsPage() {
-  const [evaluators, setEvaluators] = useState<Evaluator[]>(MOCK_EVALUATORS);
+  const router = useRouter();
+  const [evaluators, setEvaluators] = useState<Evaluator[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.listEvaluators()
-      .then((res) => setEvaluators(res.length > 0 ? res : MOCK_EVALUATORS))
-      .catch(() => setEvaluators(MOCK_EVALUATORS))
+      .then((res) => setEvaluators(res))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -33,9 +28,23 @@ export default function EvaluatorsPage() {
         title="Evaluators"
         accent={`/ ${evaluators.length}`}
         sub="Auto-applied to every production trace."
-        actions={<RefButton variant="primary" icon={Plus}>New evaluator</RefButton>}
+        actions={
+          <div className="flex gap-2">
+            <RefButton variant="outline" icon={RotateCcw} onClick={() => router.push("/evaluators/loops")}>
+              Continuous Loops
+            </RefButton>
+            <RefButton variant="primary" icon={Plus}>New evaluator</RefButton>
+          </div>
+        }
       />
 
+      {loading ? (
+        <div className="ref-card card-pad animate-pulse" style={{ height: 100 }} />
+      ) : evaluators.length === 0 ? (
+        <div className="ref-card card-pad" style={{ color: "hsl(var(--muted-foreground))", fontSize: 13 }}>
+          No evaluators configured yet.
+        </div>
+      ) : (
       <RefCard>
         <table className="runs-table">
           <thead>
@@ -76,6 +85,7 @@ export default function EvaluatorsPage() {
           </tbody>
         </table>
       </RefCard>
+      )}
     </div>
   );
 }

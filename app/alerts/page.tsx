@@ -7,47 +7,112 @@ import RefBadge from "@/components/primitives/RefBadge";
 import { RefCard } from "@/components/primitives/RefCard";
 import { api } from "@/lib/api";
 import type { AlertEvent } from "@/types";
-import { Plus, AlertCircle, ExternalLink } from "lucide-react";
-
-const MOCK_ALERTS: AlertEvent[] = [
-  { eventId: "a1", ruleId: "r1", severity: "error", title: "Error rate > 5% on ag_research", sub: "Triggered 12m ago · claude-3-5-sonnet · 132 of 2k runs", evt: "firing", when: "12m ago" },
-  { eventId: "a2", ruleId: "r2", severity: "warning", title: "p95 latency > 5s on ag_research", sub: "Triggered 38m ago · degrading since 14:20", evt: "firing", when: "38m ago" },
-  { eventId: "a3", ruleId: "r3", severity: "warning", title: "Spend pacing > $400/d", sub: "Triggered 2h ago · projected $487 by midnight", evt: "firing", when: "2h ago" },
-  { eventId: "a4", ruleId: "r4", severity: "info", title: "Guardrail toxicity@v3 — all green", sub: "Resolved 4h ago · auto-cleared", evt: "resolved", when: "4h ago" },
-];
+import { Plus, AlertCircle, CheckCircle2, X } from "lucide-react";
 
 export default function AlertsPage() {
-  const [alerts, setAlerts] = useState<AlertEvent[]>(MOCK_ALERTS);
+  const [alerts, setAlerts] = useState<AlertEvent[]>([]);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    api.listAlertEvents(0, 20)
-      .then((res) => setAlerts(res.items.length > 0 ? res.items : MOCK_ALERTS))
-      .catch(() => setAlerts(MOCK_ALERTS))
+  // Modal State
+  const [showModal, setShowModal] = useState(false);
+  const [ruleName, setRuleName] = useState("");
+  const [condition, setCondition] = useState("sql:SELECT count(*) FROM runs WHERE status = 'ERROR'");
+  const [threshold, setThreshold] = useState(5);
+  const [severity, setSeverity] = useState<"error" | "warning" | "info">("warning");
+  const [email, setEmail] = useState("");
+  const [creating, setCreating] = useState(false);
+
+  const loadAlerts = () => {
+    setLoading(true);
+    api.listAlertEvents(0, 50)
+      .then((res) => {
+        // Map backend AlertEvent structure to matches of types/index.ts
+        const items = res.items.map(a => ({
+          eventId: a.eventId,
+          ruleId: a.ruleId,
+          severity: a.severity || "warning",
+          title: a.title || "Alert triggered",
+          sub: a.sub || `Rule threshold exceeded: ${a.ruleId}`,
+          evt: a.evt || "firing",
+          when: a.when || "just now",
+        })) as AlertEvent[];
+        setAlerts(items);
+      })
+      .catch(() => {})
       .finally(() => setLoading(false));
+  };
+
+  useEffect(() => {
+    loadAlerts();
   }, []);
+
+  const handleResolve = async (eventId: string) => {
+    try {
+      await api.resolveAlertEvent(eventId);
+      alert("Alert event has been marked as resolved in the database.");
+      setAlerts((prev) =>
+        prev.map((a) => (a.eventId === eventId ? { ...a, evt: "resolved" } : a))
+      );
+    } catch (err) {
+      alert("Failed to resolve alert event.");
+    }
+  };
+
+  const handleCreateRule = async () => {
+    if (!ruleName.trim()) return;
+    setCreating(true);
+    try {
+      await api.createAlertRule({
+        name: ruleName,
+        conditionExpr: condition,
+        threshold: Number(threshold),
+        severity,
+        email: email || undefined,
+        cooldownSeconds: 300,
+      });
+      alert("Alert Rule registered successfully!");
+      setRuleName("");
+      setCondition("sql:SELECT count(*) FROM runs WHERE status = 'ERROR'");
+      setThreshold(5);
+      setSeverity("warning");
+      setEmail("");
+      setShowModal(false);
+      loadAlerts();
+    } catch (err) {
+      alert("Failed to register alert rule.");
+    } finally {
+      setCreating(false);
+    }
+  };
 
   const activeCount = alerts.filter((a) => a.evt === "firing").length;
 
   return (
-    <div className="flex flex-col gap-4">
+    <div className="flex flex-col gap-4 relative">
       <PageHeader
         title="Alerts"
         accent={`/ ${activeCount} active`}
         sub="Threshold + anomaly detectors, page on call."
-        actions={<RefButton variant="primary" icon={Plus}>New alert</RefButton>}
+        actions={
+          <RefButton variant="primary" icon={Plus} onClick={() => setShowModal(true)}>
+            New alert rule
+          </RefButton>
+        }
       />
+      
       <div className="flex flex-col gap-3">
-        {alerts.map((a) => (
+        {loading ? (
+          <div className="text-xs text-muted-foreground p-6 text-center animate-pulse">Loading alerts...</div>
+        ) : alerts.map((a) => (
           <RefCard key={a.eventId}>
             <div className="card-pad flex items-start gap-3" style={{ alignItems: "flex-start" }}>
               <div style={{
                 width: 32, height: 32, borderRadius: 6,
-                background: `hsl(var(--${a.severity === "error" ? "error" : a.severity === "warning" ? "warning" : "success"}) / 0.15)`,
-                color: `hsl(var(--${a.severity === "error" ? "error" : a.severity === "warning" ? "warning" : "success"}))`,
+                background: `hsl(var(--${a.evt === "resolved" ? "success" : a.severity === "error" ? "error" : "warning"}) / 0.15)`,
+                color: `hsl(var(--${a.evt === "resolved" ? "success" : a.severity === "error" ? "error" : "warning"}))`,
                 display: "grid", placeItems: "center", flexShrink: 0,
               }}>
-                <AlertCircle size={16} />
+                {a.evt === "resolved" ? <CheckCircle2 size={16} /> : <AlertCircle size={16} />}
               </div>
               <div style={{ flex: 1, minWidth: 0 }}>
                 <div className="flex items-center gap-2">
@@ -56,12 +121,97 @@ export default function AlertsPage() {
                 </div>
                 <div className="mute" style={{ fontSize: 11.5, marginTop: 4 }}>{a.sub}</div>
               </div>
-              <RefButton variant="outline" size="sm">Silence 1h</RefButton>
-              <RefButton variant="ghost" size="sm" icon={ExternalLink}>Open</RefButton>
+              
+              {a.evt === "firing" && (
+                <RefButton
+                  variant="outline"
+                  size="sm"
+                  onClick={() => handleResolve(a.eventId)}
+                >
+                  Resolve
+                </RefButton>
+              )}
             </div>
           </RefCard>
         ))}
       </div>
+
+      {/* New Alert Rule Modal */}
+      {showModal && (
+        <div className="fixed inset-0 bg-background/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border rounded-lg max-w-md w-full shadow-lg relative p-6 flex flex-col gap-4 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Register SQL Alert Rule</h2>
+              <button onClick={() => setShowModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X size={15} />
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              <div>
+                <label className="text-[10px] font-medium mute block mb-1">RULE NAME</label>
+                <input
+                  type="text"
+                  placeholder="e.g., high-error-rate"
+                  value={ruleName}
+                  onChange={(e) => setRuleName(e.target.value)}
+                  className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] font-medium mute block mb-1">SQL CONDITION EXPRESSION</label>
+                <input
+                  type="text"
+                  placeholder="sql:SELECT count(*) FROM runs WHERE status = 'ERROR'"
+                  value={condition}
+                  onChange={(e) => setCondition(e.target.value)}
+                  className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-[10px] font-medium mute block mb-1">THRESHOLD VALUE</label>
+                  <input
+                    type="number"
+                    value={threshold}
+                    onChange={(e) => setThreshold(Number(e.target.value))}
+                    className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                  />
+                </div>
+                <div>
+                  <label className="text-[10px] font-medium mute block mb-1">SEVERITY</label>
+                  <select
+                    value={severity}
+                    onChange={(e) => setSeverity(e.target.value as any)}
+                    className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                  >
+                    <option value="info">Info</option>
+                    <option value="warning">Warning</option>
+                    <option value="error">Error</option>
+                  </select>
+                </div>
+              </div>
+              <div>
+                <label className="text-[10px] font-medium mute block mb-1">NOTIFICATION EMAIL</label>
+                <input
+                  type="email"
+                  placeholder="ops-alerts@company.com"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                />
+              </div>
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <RefButton variant="outline" onClick={() => setShowModal(false)}>Cancel</RefButton>
+              <RefButton variant="primary" onClick={handleCreateRule} disabled={creating || !ruleName.trim()}>
+                {creating ? "Registering..." : "Register"}
+              </RefButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

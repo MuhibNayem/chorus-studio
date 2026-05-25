@@ -14,30 +14,68 @@ import type {
   AgentAlert,
   ModelMetrics,
   Dataset,
+  DatasetItem,
   Evaluator,
   RunEvaluation,
   AlertEvent,
   AlertRule,
   RetentionPolicy,
+  PromptVersion,
+  PromptTag,
+  PromptAbTest,
+  PlaygroundResult,
+  RagMetrics,
+  AuditLogEntry,
 } from "@/types";
 
-const API_BASE = process.env.CHORUS_API_URL || "http://localhost:8080";
+// All API calls go through the Next.js catch-all proxy (/api/proxy/...) which runs
+// server-side and can reach the Spring Boot backend by its Docker hostname.
+// The browser never needs to know the backend's address.
+const API_BASE = "/api/proxy";
 
-function getToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem("chorus_auth_token");
+let sessionExpiredHandler: (() => void) | null = null;
+
+export function setSessionExpiredHandler(handler: () => void) {
+  sessionExpiredHandler = handler;
 }
 
 async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
-  const token = getToken();
   const res = await fetch(`${API_BASE}${path}`, {
+    credentials: "include",
     headers: {
       "Content-Type": "application/json",
-      ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      "X-Requested-With": "XMLHttpRequest", // CSRF signal for SameSite=Lax
       ...options?.headers,
     },
     ...options,
   });
+
+  if (res.status === 401) {
+    // Try a silent refresh once before giving up
+    const refreshed = await fetch("/api/auth/refresh", {
+      method: "POST",
+      credentials: "include",
+    }).catch(() => null);
+
+    if (refreshed?.ok) {
+      // Retry the original request with the refreshed cookie
+      const retry = await fetch(`${API_BASE}${path}`, {
+        credentials: "include",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Requested-With": "XMLHttpRequest",
+          ...options?.headers,
+        },
+        ...options,
+      });
+      if (retry.ok) return retry.json() as Promise<T>;
+    }
+
+    // Refresh failed — session truly expired
+    sessionExpiredHandler?.();
+    throw new Error("Session expired");
+  }
+
   if (!res.ok) {
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`API ${res.status}: ${text}`);
@@ -52,24 +90,33 @@ function qs(params?: Record<string, string | number | undefined>): string {
   return "?" + new URLSearchParams(entries.map(([k, v]) => [k, String(v)])).toString();
 }
 
-/* ── Auth ─────────────────────────────────────────────────── */
+/* ── Auth — all routes go through Next.js BFF (sets httpOnly cookies) ─── */
 
 export const authApi = {
   login: (tenantId: string, email: string, password: string) =>
-    fetch("http://localhost:8080/api/v1/auth/login", {
+    fetch("/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ tenantId, email, password }),
     }),
 
   register: (email: string, password: string, displayName: string) =>
-    fetch("http://localhost:8080/api/v1/auth/register", {
+    fetch("/api/auth/register", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      credentials: "include",
       body: JSON.stringify({ email, password, displayName }),
     }),
 
-  me: () => fetchJson<{ userId: string; email: string; displayName: string; tenantId: string; permissions: string[] }>("/api/v1/auth/me"),
+  logout: () =>
+    fetch("/api/auth/logout", { method: "POST", credentials: "include" }),
+
+  me: () =>
+    fetch("/api/auth/me", { credentials: "include" }).then((r) => {
+      if (!r.ok) throw new Error("Not authenticated");
+      return r.json() as Promise<{ userId: string; email: string; displayName: string; tenantId: string; permissions: string[] }>;
+    }),
 };
 
 /* ── Dashboard ────────────────────────────────────────────── */
@@ -107,22 +154,66 @@ export const api = {
     }),
 
   streamRun: (runId: string, onEvent: (span: Span) => void, onError?: (err: Error) => void) => {
-    const token = getToken();
-    const source = new EventSource(`${API_BASE}/api/v1/runs/${runId}/stream`, {
-      headers: token ? { Authorization: `Bearer ${token}` } : undefined,
-    } as EventSourceInit);
-    source.onmessage = (e) => {
+    const controller = new AbortController();
+
+    const startStream = async () => {
       try {
-        onEvent(JSON.parse(e.data));
+        const response = await fetch(`${API_BASE}/api/v1/runs/${runId}/stream`, {
+          signal: controller.signal,
+          credentials: "include",
+          headers: {
+            "Accept": "text/event-stream",
+            "X-Requested-With": "XMLHttpRequest",
+          },
+        });
+
+        if (!response.ok) {
+          throw new Error(`SSE HTTP error: ${response.status}`);
+        }
+
+        if (!response.body) {
+          throw new Error("No response body available for streaming");
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split("\n");
+          buffer = lines.pop() || "";
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith("data:")) {
+              const dataContent = trimmed.substring(5).trim();
+              if (dataContent) {
+                try {
+                  onEvent(JSON.parse(dataContent));
+                } catch (parseErr) {
+                  // Ignore parse errors from partial lines
+                }
+              }
+            }
+          }
+        }
       } catch (err) {
+        if (err instanceof Error && err.name === "AbortError") {
+          return;
+        }
         onError?.(err as Error);
       }
     };
-    source.onerror = () => {
-      onError?.(new Error("SSE connection error"));
-      source.close();
+
+    startStream();
+
+    return () => {
+      controller.abort();
     };
-    return () => source.close();
   },
 
   /* ── Agents ─────────────────────────────────────────────── */
@@ -175,12 +266,45 @@ export const api = {
   listDatasets: (page = 0, size = 20) =>
     fetchJson<PagedResult<Dataset>>(`/api/v1/datasets${qs({ page, size })}`),
 
+  createDataset: (name: string, description?: string, owner?: string, tags?: string[]) =>
+    fetchJson<Dataset>("/api/v1/datasets", {
+      method: "POST",
+      body: JSON.stringify({
+        name,
+        description,
+        source: "manual",
+        owner: owner || "platform",
+        tags: tags ? Object.fromEntries(tags.map((t) => [t, "true"])) : {},
+      }),
+    }),
+
+  importDatasetJsonl: (datasetId: string, jsonLines: string[]) =>
+    fetchJson<void>(`/api/v1/datasets/${datasetId}/import-jsonl`, {
+      method: "POST",
+      body: JSON.stringify(jsonLines),
+    }),
+
+  addDatasetItem: (datasetId: string, input: string, expectedOutput: string) =>
+    fetchJson<void>(`/api/v1/datasets/${datasetId}/items`, {
+      method: "POST",
+      body: JSON.stringify({ input, expectedOutput, metadata: {} }),
+    }),
+
+  listDatasetItems: (datasetId: string, page = 0, size = 50) =>
+    fetchJson<PagedResult<DatasetItem>>(`/api/v1/datasets/${datasetId}/items${qs({ page, size })}`),
+
   /* ── Evaluators ─────────────────────────────────────────── */
 
   listEvaluators: () => fetchJson<Evaluator[]>("/api/v1/evaluators"),
 
   getRunEvaluations: (runId: string) =>
     fetchJson<RunEvaluation[]>(`/api/v1/runs/${runId}/evaluations`),
+
+  replayRun: (originalRunId: string, fromCheckpointSequence = 1, stateOverrides: Record<string, unknown> = {}) =>
+    fetchJson<{ runId: string }>("/api/v1/replay", {
+      method: "POST",
+      body: JSON.stringify({ originalRunId, fromCheckpointSequence, stateOverrides }),
+    }),
 
   /* ── Alerts ─────────────────────────────────────────────── */
 
@@ -193,7 +317,88 @@ export const api = {
   resolveAlertEvent: (eventId: string) =>
     fetchJson<void>(`/api/v1/alerts/events/${eventId}/resolve`, { method: "POST" }),
 
+  createAlertRule: (body: {
+    name: string;
+    conditionExpr: string;
+    threshold: number;
+    severity: "error" | "warning" | "info";
+    webhookUrl?: string;
+    email?: string;
+    cooldownSeconds?: number;
+  }) =>
+    fetchJson<AlertRule>("/api/v1/alerts/rules", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
   /* ── Settings ───────────────────────────────────────────── */
 
   getRetentionPolicies: () => fetchJson<RetentionPolicy[]>("/api/v1/retention-policies"),
+
+  /* ── Prompts ────────────────────────────────────────────── */
+
+  listPromptVersions: (page = 0, size = 20) =>
+    fetchJson<PagedResult<PromptVersion>>(`/api/v1/prompts${qs({ page, size })}`),
+
+  createPromptVersion: (body: {
+    name: string;
+    content: string;
+    model?: string;
+    temperature?: number;
+    maxTokens?: number;
+    createdBy?: string;
+  }) =>
+    fetchJson<PromptVersion>("/api/v1/prompts", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getPromptVersion: (versionId: string) =>
+    fetchJson<PromptVersion>(`/api/v1/prompts/${versionId}`),
+
+  deletePromptVersion: (versionId: string) =>
+    fetchJson<void>(`/api/v1/prompts/${versionId}`, { method: "DELETE" }),
+
+  addPromptTag: (versionId: string, tagName: string) =>
+    fetchJson<PromptTag>(`/api/v1/prompts/${versionId}/tags`, {
+      method: "POST",
+      body: JSON.stringify({ tagName }),
+    }),
+
+  removePromptTag: (versionId: string, tagName: string) =>
+    fetchJson<void>(`/api/v1/prompts/${versionId}/tags/${tagName}`, { method: "DELETE" }),
+
+  createPromptAbTest: (body: { datasetId: string; promptAId: string; promptBId: string }) =>
+    fetchJson<PromptAbTest>("/api/v1/prompts/ab-tests", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  listPromptAbTests: (page = 0, size = 20) =>
+    fetchJson<PagedResult<PromptAbTest>>(`/api/v1/prompts/ab-tests${qs({ page, size })}`),
+
+  executePromptAbTest: (testId: string) =>
+    fetchJson<any>(`/api/v1/prompts/ab-tests/${testId}/execute`, { method: "POST" }),
+
+  /* ── Playground ─────────────────────────────────────────── */
+
+  executePlayground: (body: {
+    promptContent: string;
+    model?: string;
+    variables?: Record<string, string>;
+  }) =>
+    fetchJson<PlaygroundResult>("/api/v1/playground/execute", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  /* ── RAG Metrics ────────────────────────────────────────── */
+
+  getRagMetrics: (window?: string) =>
+    fetchJson<RagMetrics>(`/api/v1/rag/metrics${qs({ window })}`),
+
+  /* ── Audit Logs ─────────────────────────────────────────── */
+
+  listAuditLogs: (page = 0, size = 20) =>
+    fetchJson<PagedResult<AuditLogEntry>>(`/api/v1/audit-logs${qs({ page, size })}`),
 };

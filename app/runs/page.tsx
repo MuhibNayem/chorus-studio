@@ -34,26 +34,24 @@ export default function RunsPage() {
       .finally(() => setLoading(false));
   }, [page, size, filters]);
 
+  // Reset page to 0 when filters change, ensuring standard page transitions
+  useEffect(() => {
+    setPage(0);
+  }, [filters]);
+
   useEffect(() => { load(); }, [load]);
 
-  const frameworks = Array.from(new Set(runs.map((r) => r.framework)));
+  const frameworks = Array.from(new Set(["LangGraph", "Chorus", "LangChain", ...runs.map((r) => r.framework)]));
   const totalPages = Math.ceil(total / size);
 
-  const filtered = runs.filter((r) => {
-    if (filters.status && r.status !== filters.status) return false;
-    if (filters.framework && r.framework !== filters.framework) return false;
-    if (filters.search) {
-      const q = filters.search.toLowerCase();
-      if (!(r.runId + r.agentId + (r.model ?? "") + r.framework).toLowerCase().includes(q)) return false;
-    }
-    return true;
-  });
+  const startItem = page * size + 1;
+  const endItem = page * size + runs.length;
 
   return (
     <div className="flex flex-col gap-4">
       <PageHeader
         title="Runs"
-        accent={`/ ${filtered.length.toLocaleString()} of ${total.toLocaleString()}`}
+        accent={`/ ${total.toLocaleString()} total`}
         sub="All agent executions, newest first."
         actions={
           <>
@@ -92,13 +90,13 @@ export default function RunsPage() {
         </RefCard>
       ) : (
         <RefCard style={{ overflow: "hidden" }}>
-          <RunsTable runs={filtered} />
+          <RunsTable runs={runs} />
         </RefCard>
       )}
 
       <div className="flex items-center justify-between gap-4" style={{ marginTop: 14 }}>
         <div className="mute" style={{ fontSize: 12 }}>
-          Showing <span className="mono tabular">1–{filtered.length}</span> of <span className="mono tabular">{total.toLocaleString()}</span>
+          Showing <span className="mono tabular">{runs.length > 0 ? `${startItem}–${endItem}` : "0"}</span> of <span className="mono tabular">{total.toLocaleString()}</span>
         </div>
         <div className="flex items-center gap-1">
           <RefButton variant="outline" size="sm" disabled={page === 0} onClick={() => setPage((p) => p - 1)}>
@@ -107,7 +105,7 @@ export default function RunsPage() {
           <span className="mute mono tabular" style={{ fontSize: 11, padding: "0 8px" }}>
             {page + 1} / {totalPages}
           </span>
-          <RefButton variant="outline" size="sm" disabled={filtered.length < size} onClick={() => setPage((p) => p + 1)}>
+          <RefButton variant="outline" size="sm" disabled={runs.length < size} onClick={() => setPage((p) => p + 1)}>
             Next <ChevronRight size={13} />
           </RefButton>
         </div>

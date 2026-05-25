@@ -7,14 +7,55 @@ import type { ProvenanceEntry } from "@/types";
 
 export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] }) {
   const nodes = useMemo(() => {
-    return entries.map((e) => ({
-      id: e.entryId,
-      label: e.decisionType,
-      type: getType(e.decisionType),
-      x: 40 + (e.parentIds.length * 220),
-      y: 24 + ((hash(e.entryId) % 5) * 70),
-      meta: e.agentId,
-    }));
+    const byIdMap = Object.fromEntries(entries.map(e => [e.entryId, e]));
+    const levels: Record<string, number> = {};
+    
+    function getLevel(id: string): number {
+      if (id in levels) return levels[id];
+      const entry = byIdMap[id];
+      if (!entry || !entry.parentIds || entry.parentIds.length === 0) {
+        levels[id] = 0;
+        return 0;
+      }
+      let maxParentLvl = 0;
+      for (const pid of entry.parentIds) {
+        maxParentLvl = Math.max(maxParentLvl, getLevel(pid));
+      }
+      levels[id] = maxParentLvl + 1;
+      return levels[id];
+    }
+    
+    for (const entry of entries) {
+      getLevel(entry.entryId);
+    }
+    
+    const nodesByLevel: Record<number, string[]> = {};
+    for (const entry of entries) {
+      const lvl = levels[entry.entryId] ?? 0;
+      if (!nodesByLevel[lvl]) nodesByLevel[lvl] = [];
+      nodesByLevel[lvl].push(entry.entryId);
+    }
+    
+    return entries.map((e) => {
+      const lvl = levels[e.entryId] ?? 0;
+      const idx = nodesByLevel[lvl].indexOf(e.entryId);
+      const levelCount = nodesByLevel[lvl].length;
+      
+      const x = 40 + lvl * 220;
+      const totalHeight = 280;
+      const spacing = 70;
+      const startY = (totalHeight - (levelCount * 36 + (levelCount - 1) * (spacing - 36))) / 2;
+      const y = Math.max(20, startY + idx * spacing);
+      
+      return {
+        id: e.entryId,
+        label: e.decisionType,
+        type: getType(e.decisionType),
+        x,
+        y,
+        meta: e.agentId,
+      };
+    });
   }, [entries]);
 
   const edges = useMemo(() => {

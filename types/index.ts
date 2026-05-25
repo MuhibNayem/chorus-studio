@@ -221,6 +221,16 @@ export interface Dataset {
   tags: string[];
 }
 
+export interface DatasetItem {
+  itemId: string;
+  datasetId: string;
+  input: string;
+  expectedOutput?: string;
+  metadata: Record<string, any>;
+  tags: Record<string, string>;
+  createdAt: string;
+}
+
 /* ── Evaluators ───────────────────────────────────────────── */
 
 export interface Evaluator {
@@ -291,3 +301,70 @@ export interface RunFilters {
   to?: string;
   search?: string;
 }
+
+/* ── Prompts ──────────────────────────────────────────────── */
+
+export interface PromptVersion {
+  versionId: string;
+  name: string;
+  content: string;
+  model: string | null;
+  temperature: number | null;
+  maxTokens: number | null;
+  createdBy: string | null;
+  createdAt: string;
+  tags?: string[];
+}
+
+export interface PromptTag {
+  tagId: string;
+  versionId: string;
+  tagName: string;
+}
+
+export interface PromptAbTest {
+  testId: string;
+  datasetId: string;
+  promptAId: string;
+  promptBId: string;
+  status: "PENDING" | "RUNNING" | "COMPLETED" | "FAILED";
+  winnerId: string | null;
+  pValue: number | null;
+  summaryMetrics: Record<string, any> | null;
+  createdAt: string;
+}
+
+/* ── Playground ───────────────────────────────────────────── */
+
+export interface PlaygroundResult {
+  output: string;
+  latencyMs: number;
+  inputTokens: number;
+  outputTokens: number;
+  estimatedCost: number;
+}
+
+/* ── RAG Metrics ──────────────────────────────────────────── */
+
+export interface RagMetrics {
+  queryCount: number;
+  avgContextPrecision: number;
+  avgContextRecall: number;
+  avgLatencyMs: number;
+  hitRate: number;
+  latencyDistribution: { bucket: string; count: number }[];
+  topQueries: { query: string; count: number; avgScore: number }[];
+}
+
+/* ── Audit Logs ───────────────────────────────────────────── */
+
+export interface AuditLogEntry {
+  logId: string;
+  tenantId: string;
+  userId: string;
+  username?: string;
+  action: string;
+  ipAddress: string;
+  timestamp: string;
+}
+

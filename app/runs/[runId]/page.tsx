@@ -19,9 +19,9 @@ import { RefCard } from "@/components/primitives/RefCard";
 import { formatTokens, formatCost, formatDuration, formatRel, formatHM } from "@/lib/utils";
 import {
   ArrowLeft, ThumbsUp, ThumbsDown, GitBranch, Cpu, Server,
-  Activity, Sparkles, Wrench, RefreshCw, Plus, Eye,
+  Activity, Sparkles, Wrench, RefreshCw, Plus, Eye, X,
 } from "lucide-react";
-import type { Run, Span, LlmCall, ToolCall, ProvenanceEntry } from "@/types";
+import type { Run, Span, LlmCall, ToolCall, ProvenanceEntry, Dataset } from "@/types";
 
 function StatusBadge({ status }: { status: Run["status"] }) {
   const map: Record<string, { v: string; label: string }> = {
@@ -47,6 +47,12 @@ export default function RunDetailPage() {
   const [feedbackSent, setFeedbackSent] = useState<1 | 0 | null>(null);
   const [tab, setTab] = useState("trace");
   const [selectedSpan, setSelectedSpan] = useState<Span | null>(null);
+
+  // Add to Dataset Modal State
+  const [showDatasetModal, setShowDatasetModal] = useState(false);
+  const [datasets, setDatasets] = useState<Dataset[]>([]);
+  const [selectedDatasetId, setSelectedDatasetId] = useState("");
+  const [loadingDatasets, setLoadingDatasets] = useState(false);
 
   useEffect(() => {
     if (!runId) return;
@@ -84,6 +90,46 @@ export default function RunDetailPage() {
   const handleFeedback = (score: 1 | 0) => {
     api.submitFeedback(runId, score).catch(() => {});
     setFeedbackSent(score);
+  };
+
+  const handleReplay = async () => {
+    if (!run) return;
+    try {
+      const res = await api.replayRun(run.runId);
+      alert(`Causal replay triggered successfully! New run created: run_${res.runId}`);
+    } catch (err) {
+      alert(`Failed to trigger replay: ${err instanceof Error ? err.message : String(err)}`);
+    }
+  };
+
+  const openDatasetModal = async () => {
+    setLoadingDatasets(true);
+    setShowDatasetModal(true);
+    try {
+      const res = await api.listDatasets(0, 100);
+      const items = res.items;
+      setDatasets(items);
+      if (items.length > 0) {
+        setSelectedDatasetId(items[0].datasetId);
+      }
+    } catch (err) {
+      alert("Failed to load datasets list.");
+    } finally {
+      setLoadingDatasets(false);
+    }
+  };
+
+  const handleAddToDataset = async () => {
+    if (!selectedDatasetId || !run) return;
+    try {
+      const inputStr = run.framework + " Execution with " + run.agentId;
+      const outputStr = run.status + " latency: " + run.latencyMs + "ms";
+      await api.addDatasetItem(selectedDatasetId, inputStr, outputStr);
+      alert("Run was successfully exported as an example to the selected dataset!");
+      setShowDatasetModal(false);
+    } catch (err) {
+      alert(`Failed to export run: ${err instanceof Error ? err.message : String(err)}`);
+    }
   };
 
   const llmBySpan = useMemo(() => {
@@ -132,7 +178,7 @@ export default function RunDetailPage() {
   ];
 
   return (
-    <div className="flex flex-col gap-5">
+    <div className="flex flex-col gap-5 relative">
       {/* Back link */}
       <Link
         href="/runs"
@@ -178,8 +224,8 @@ export default function RunDetailPage() {
             onClick={() => handleFeedback(0)}
           >Bad</RefButton>
           <div className="sep-v" />
-          <RefButton variant="outline" icon={RefreshCw}>Replay</RefButton>
-          <RefButton variant="outline" icon={Plus}>To dataset</RefButton>
+          <RefButton variant="outline" icon={RefreshCw} onClick={handleReplay}>Replay</RefButton>
+          <RefButton variant="outline" icon={Plus} onClick={openDatasetModal}>To dataset</RefButton>
         </div>
       </div>
 
@@ -235,8 +281,50 @@ export default function RunDetailPage() {
       {tab === "llm" && <LlmCallList calls={llmCalls} />}
       {tab === "tools" && <ToolCallList calls={toolCalls} />}
       {tab === "provenance" && <ProvenanceDag entries={provenance} />}
-      {tab === "evals" && <EvalTab />}
+      {tab === "evals" && <EvalTab runId={run.runId} />}
       {tab === "raw" && <RawTab run={run} />}
+
+      {/* Dataset Selection Modal */}
+      {showDatasetModal && (
+        <div className="fixed inset-0 bg-background/85 backdrop-blur-sm z-50 flex items-center justify-center p-4">
+          <div className="bg-card border rounded-lg max-w-sm w-full shadow-lg relative p-6 flex flex-col gap-4 animate-in fade-in zoom-in duration-200">
+            <div className="flex items-center justify-between">
+              <h2 className="text-sm font-semibold">Select Target Dataset</h2>
+              <button onClick={() => setShowDatasetModal(false)} className="text-muted-foreground hover:text-foreground">
+                <X size={15} />
+              </button>
+            </div>
+            
+            <div className="flex flex-col gap-3">
+              {loadingDatasets ? (
+                <div className="text-xs text-muted-foreground py-4 text-center animate-pulse">Loading datasets list...</div>
+              ) : datasets.length === 0 ? (
+                <div className="text-xs text-muted-foreground py-4 text-center">No datasets found. Create one on the Datasets screen first.</div>
+              ) : (
+                <div>
+                  <label className="text-[10px] font-medium mute block mb-1">TARGET DATASET</label>
+                  <select
+                    value={selectedDatasetId}
+                    onChange={(e) => setSelectedDatasetId(e.target.value)}
+                    className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
+                  >
+                    {datasets.map((d) => (
+                      <option key={d.datasetId} value={d.datasetId}>
+                        {d.name} ({d.datasetId})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <RefButton variant="outline" onClick={() => setShowDatasetModal(false)}>Cancel</RefButton>
+              <RefButton variant="primary" onClick={handleAddToDataset} disabled={loadingDatasets || datasets.length === 0}>Export</RefButton>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

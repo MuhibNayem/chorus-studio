@@ -11,26 +11,18 @@ import type { Agent } from "@/types";
 import { formatTokens, formatDuration, formatCost } from "@/lib/utils";
 import { ExternalLink, Plus, ChevronRight, Cpu } from "lucide-react";
 
-const MOCK_AGENTS: Agent[] = [
-  { agentId: "ag_observability_v2", name: "Observability Copilot", framework: "LangGraph", owner: "platform", runs24h: 38_412, latencyP95: 4_120, cost24h: 84.20, errors24h: 124, version: "v2.4.0", status: "healthy", tags: [] },
-  { agentId: "ag_router_v3", name: "Model Router", framework: "Chorus", owner: "platform", runs24h: 24_180, latencyP95: 2_840, cost24h: 41.80, errors24h: 41, version: "v3.1.0", status: "healthy", tags: [] },
-  { agentId: "ag_research", name: "Research Agent", framework: "LangChain", owner: "research", runs24h: 18_904, latencyP95: 14_500, cost24h: 92.40, errors24h: 312, version: "v1.8.2", status: "degraded", tags: [] },
-  { agentId: "ag_eval_judge", name: "LLM Judge", framework: "LangGraph", owner: "platform", runs24h: 12_412, latencyP95: 1_240, cost24h: 12.10, errors24h: 8, version: "v0.9.1", status: "healthy", tags: [] },
-  { agentId: "ag_summariser", name: "Summariser", framework: "Chorus", owner: "platform", runs24h: 9_240, latencyP95: 3_820, cost24h: 24.80, errors24h: 24, version: "v1.2.0", status: "healthy", tags: [] },
-];
-
 function statusToVariant(s: string) {
   return s === "healthy" ? "success" : s === "degraded" ? "warning" : "error";
 }
 
 export default function AgentsPage() {
-  const [agents, setAgents] = useState<Agent[]>(MOCK_AGENTS);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
 
   useEffect(() => {
     api.listAgents()
-      .then((res) => setAgents(res.length > 0 ? res : MOCK_AGENTS))
-      .catch(() => setAgents(MOCK_AGENTS))
+      .then((res) => setAgents(res))
+      .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
 
@@ -50,6 +42,13 @@ export default function AgentsPage() {
         }
       />
 
+      {loading ? (
+        <div className="ref-card card-pad animate-pulse" style={{ height: 100 }} />
+      ) : agents.length === 0 ? (
+        <div className="ref-card card-pad" style={{ color: "hsl(var(--muted-foreground))", fontSize: 13 }}>
+          No agents registered yet.
+        </div>
+      ) : (
       <RefCard style={{ overflow: "hidden" }}>
         <table className="runs-table">
           <thead>
@@ -87,7 +86,13 @@ export default function AgentsPage() {
                   </Link>
                 </td>
                 <td><RefBadge variant="muted">{a.framework}</RefBadge></td>
-                <td className="mute" style={{ fontSize: 11.5 }}>{a.owner}</td>
+                <td style={{ fontSize: 11.5 }}>
+                  {a.owner ? (
+                    <span className="mute">{a.owner}</span>
+                  ) : (
+                    <RefBadge variant="muted">auto-provisioned</RefBadge>
+                  )}
+                </td>
                 <td className="r">{formatTokens(a.runs24h ?? 0)}</td>
                 <td className="r">{formatDuration(a.latencyP95 ?? 0)}</td>
                 <td className="r">${(a.cost24h ?? 0).toFixed(2)}</td>
@@ -99,6 +104,7 @@ export default function AgentsPage() {
           </tbody>
         </table>
       </RefCard>
+      )}
     </div>
   );
 }

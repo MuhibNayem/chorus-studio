@@ -13,14 +13,22 @@ import {
   Bell,
   Settings,
   ChevronsUpDown,
+  FolderOpen,
+  Terminal,
+  Activity,
+  Shield,
+  FileCode,
 } from "lucide-react";
 import { useAuth } from "@/hooks/useAuth";
 
 const workspaceItems = [
   { href: "/", label: "Overview", icon: LayoutDashboard, kbd: "G O" },
   { href: "/runs", label: "Runs", icon: List, kbd: "G R", badge: "128.4k" },
+  { href: "/prompts", label: "Prompts", icon: FolderOpen },
+  { href: "/playground", label: "Playground", icon: Terminal },
   { href: "/datasets", label: "Datasets", icon: Database, kbd: "G D" },
   { href: "/evaluators", label: "Evaluators", icon: Sparkles, kbd: "G E" },
+  { href: "/rag", label: "RAG Analytics", icon: Activity },
   { href: "/provenance", label: "Provenance", icon: GitBranch },
 ];
 
@@ -29,6 +37,8 @@ const platformItems = [
   { href: "/models", label: "Models", icon: Server },
   { href: "/alerts", label: "Alerts", icon: Bell, badge: "3" },
   { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings/integrations", label: "Integrations", icon: FileCode },
+  { href: "/settings/enterprise", label: "Enterprise", icon: Shield },
 ];
 
 function isActive(pathname: string, href: string) {

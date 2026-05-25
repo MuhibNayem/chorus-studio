@@ -62,14 +62,16 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
     levelNodes.get(lvl)!.push(node);
   }
 
+  const canvasHeight = Math.max(nodes.length * 80, 400);
+
   return (
     <Card>
       <CardHeader>
         <CardTitle>Causal Provenance DAG</CardTitle>
       </CardHeader>
       <CardContent>
-        <div className="relative overflow-auto" style={{ minHeight: 400 }}>
-          <svg width="100%" height={Math.max(nodes.length * 80, 400)} className="absolute inset-0">
+        <div className="relative overflow-auto" style={{ minHeight: 400, height: canvasHeight }}>
+          <svg width="100%" height={canvasHeight} className="absolute inset-0">
             {/* Edges */}
             {edges.map((edge, i) => {
               const fromNode = nodes.find((n) => n.id === edge.from);
@@ -81,9 +83,12 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
               const toIdx = levelNodes.get(toLvl)!.findIndex((n) => n.id === toNode.id);
 
               const fromX = (fromLvl + 0.5) * levelWidth;
-              const fromY = (fromIdx + 0.5) * (400 / Math.max(levelNodes.get(fromLvl)!.length, 1));
+              const fromHeight = canvasHeight / Math.max(levelNodes.get(fromLvl)!.length, 1);
+              const fromY = (fromIdx + 0.5) * fromHeight;
+
               const toX = (toLvl + 0.5) * levelWidth;
-              const toY = (toIdx + 0.5) * (400 / Math.max(levelNodes.get(toLvl)!.length, 1));
+              const toHeight = canvasHeight / Math.max(levelNodes.get(toLvl)!.length, 1);
+              const toY = (toIdx + 0.5) * toHeight;
 
               return (
                 <line
@@ -92,38 +97,47 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
                   y1={fromY}
                   x2={`${toX}%`}
                   y2={toY}
-                  stroke="hsl(214.3 31.8% 91.4%)"
-                  strokeWidth={2}
+                  stroke="hsl(var(--muted-foreground) / 0.45)"
+                  strokeWidth={1.5}
                   markerEnd="url(#arrow)"
                 />
               );
             })}
             <defs>
               <marker id="arrow" markerWidth="10" markerHeight="10" refX="9" refY="3" orient="auto" markerUnits="strokeWidth">
-                <path d="M0,0 L0,6 L9,3 z" fill="hsl(214.3 31.8% 91.4%)" />
+                <path d="M0,0 L0,6 L9,3 z" fill="hsl(var(--muted-foreground) / 0.45)" />
               </marker>
             </defs>
           </svg>
 
           {/* Nodes */}
-          <div className="relative" style={{ minHeight: 400 }}>
+          <div className="relative w-full h-full">
             {Array.from(levelNodes.entries()).map(([lvl, ns]) =>
-              ns.map((node, idx) => (
-                <div
-                  key={node.id}
-                  className="absolute bg-card border rounded-lg p-3 shadow-sm w-48 hover:shadow-md transition-shadow"
-                  style={{
-                    left: `${lvl * levelWidth + 1}%`,
-                    top: `${idx * (400 / Math.max(ns.length, 1))}px`,
-                  }}
-                >
-                  <p className="text-xs font-semibold text-primary">{node.label}</p>
-                  <p className="text-xs text-muted-foreground mt-1">{node.agentId}</p>
-                  {node.output && (
-                    <p className="text-xs text-muted-foreground mt-1 truncate">{node.output}</p>
-                  )}
-                </div>
-              ))
+              ns.map((node, idx) => {
+                const cellHeight = canvasHeight / Math.max(ns.length, 1);
+                const nodeTop = idx * cellHeight + (cellHeight - 80) / 2;
+                return (
+                  <div
+                    key={node.id}
+                    className="absolute"
+                    style={{
+                      left: `${lvl * levelWidth}%`,
+                      width: `${levelWidth}%`,
+                      top: `${nodeTop}px`,
+                      display: "flex",
+                      justifyContent: "center",
+                    }}
+                  >
+                    <div className="bg-card border rounded-lg p-3 shadow-sm w-48 hover:shadow-md transition-shadow relative z-10">
+                      <p className="text-[11px] font-semibold text-primary truncate" title={node.label}>{node.label}</p>
+                      <p className="text-[10px] text-muted-foreground mt-1 truncate" title={node.agentId}>{node.agentId}</p>
+                      {node.output && (
+                        <p className="text-[10px] text-muted-foreground mt-1 truncate" title={node.output}>{node.output}</p>
+                      )}
+                    </div>
+                  </div>
+                );
+              })
             )}
           </div>
         </div>
