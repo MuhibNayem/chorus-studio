@@ -297,6 +297,39 @@ export const api = {
 
   listEvaluators: () => fetchJson<Evaluator[]>("/api/v1/evaluators"),
 
+  createEvaluator: (body: {
+    name: string;
+    kind: string;
+    description?: string;
+    config: Record<string, unknown>;
+  }) => fetchJson<Evaluator>("/api/v1/evaluators", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+
+  listEvalLoops: () => fetchJson<any[]>("/api/v1/eval-loops"),
+
+  createEvalLoop: (body: {
+    agentId: string;
+    evaluatorId: string;
+    samplingRate: number;
+    alertThreshold: number;
+  }) => fetchJson<any>("/api/v1/eval-loops", {
+    method: "POST",
+    body: JSON.stringify(body),
+  }),
+
+  toggleEvalLoop: (loopId: string, status: "ACTIVE" | "PAUSED") =>
+    fetchJson<any>(`/api/v1/eval-loops/${loopId}`, {
+      method: "PATCH",
+      body: JSON.stringify({ status }),
+    }),
+
+  deleteEvalLoop: (loopId: string) =>
+    fetchJson<void>(`/api/v1/eval-loops/${loopId}`, {
+      method: "DELETE",
+    }),
+
   getRunEvaluations: (runId: string) =>
     fetchJson<RunEvaluation[]>(`/api/v1/runs/${runId}/evaluations`),
 
