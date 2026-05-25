@@ -1,214 +1,298 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/shared/PageHeader";
 import RefButton from "@/components/primitives/RefButton";
+import { RefCard, CardHeader, CardPad } from "@/components/primitives/RefCard";
+import RagKpiStrip from "@/components/rag/RagKpiStrip";
+import RagTrendChart from "@/components/rag/RagTrendChart";
+import RagLatencyBreakdown from "@/components/rag/RagLatencyBreakdown";
+import RagClusterMap from "@/components/rag/RagClusterMap";
+import RagDriftBanner from "@/components/rag/RagDriftBanner";
+import RagQueryDrawer from "@/components/rag/RagQueryDrawer";
 import {
-  Activity,
-  Layers,
-  Clock,
-  Sparkles,
-  TrendingUp,
-  Award,
-  Loader2,
-  Calendar
+  Activity, RefreshCw, Loader2, TrendingUp,
+  Clock, Database, ChevronLeft, ChevronRight, Layers
 } from "lucide-react";
-import {
-  BarChart,
-  Bar,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer
-} from "recharts";
-import type { RagMetrics } from "@/types";
+import type {
+  RagMetrics, RagTrendPoint, RagCluster,
+  RagDriftSnapshot, RagQueryEntry
+} from "@/types";
+import { Select } from "@/components/ui/select";
+
+const WINDOWS = ["1h", "6h", "24h", "7d", "30d"];
+const GRANULARITIES: Record<string, string> = { "1h": "hour", "6h": "hour", "24h": "hour", "7d": "day", "30d": "day" };
+
+function ScoreBadge({ value }: { value: number | null | undefined }) {
+  if (value == null) return <span className="mono" style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))" }}>—</span>;
+  const pct = (value * 100).toFixed(0);
+  const v = value >= 0.85 ? "success" : value >= 0.70 ? "warning" : "error";
+  return (
+    <span className={`ref-badge ${v}`}>
+      <span className="dot" />
+      {pct}%
+    </span>
+  );
+}
 
 export default function RagPage() {
-  const [window, setWindow] = useState("24h");
-  const [metrics, setMetrics] = useState<RagMetrics | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [window, setWindow]             = useState("24h");
+  const [collection, setCollection]     = useState<string>("");
+  const [metrics, setMetrics]           = useState<RagMetrics | null>(null);
+  const [trend, setTrend]               = useState<RagTrendPoint[]>([]);
+  const [clusters, setClusters]         = useState<RagCluster[]>([]);
+  const [drift, setDrift]               = useState<RagDriftSnapshot[]>([]);
+  const [queries, setQueries]           = useState<RagQueryEntry[]>([]);
+  const [queryTotal, setQueryTotal]     = useState(0);
+  const [queryPage, setQueryPage]       = useState(0);
+  const [loading, setLoading]           = useState(true);
+  const [selectedCluster, setSelectedCluster] = useState<string | null>(null);
+  const [activeQueryId, setActiveQueryId]     = useState<string | null>(null);
 
-  useEffect(() => {
-    loadData();
-  }, [window]);
+  const coll = collection || undefined;
+  const gran = GRANULARITIES[window] ?? "day";
 
-  const loadData = async () => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await api.getRagMetrics(window);
-      setMetrics(res);
+      const [m, t, c, d, q] = await Promise.all([
+        api.getRagMetrics(window, coll),
+        api.getRagTrend(window, gran, coll),
+        api.getRagClusters(window, coll),
+        api.getRagDrift("30d", coll),
+        api.listRagQueries({ window, collection: coll, page: 0, size: 20 }),
+      ]);
+      setMetrics(m);
+      setTrend(t);
+      setClusters(c);
+      setDrift(d);
+      setQueries(q.items);
+      setQueryTotal(q.total);
+      setQueryPage(0);
     } catch (e) {
       console.error(e);
     } finally {
       setLoading(false);
     }
+  }, [window, coll, gran]);
+
+  useEffect(() => { loadAll(); }, [loadAll]);
+
+  const loadPage = async (page: number) => {
+    try {
+      const r = await api.listRagQueries({ window, collection: coll, page, size: 20 });
+      setQueries(r.items);
+      setQueryPage(page);
+    } catch (e) {
+      console.error(e);
+    }
   };
 
+  const collectionOptions = metrics?.collections ?? [];
+
   return (
-    <div className="flex flex-col gap-5 h-full">
+    <div className="flex flex-col gap-5" style={{ paddingBottom: 40 }}>
       <PageHeader
         title="RAG Diagnostics"
-        accent="/ retrieval metrics"
-        sub="Track vector search latency spreads, context recall/precision stats, and identify semantic retrieval queries."
+        accent="/ retrieval analytics"
+        sub="Precision · recall · faithfulness · relevancy · embedding drift · semantic query clusters"
         actions={
-          <div className="flex gap-2">
-            <select
-              className="mono border p-2 rounded-md bg-background text-xs"
+          <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
+            <Select
+              value={collection}
+              onChange={(v) => setCollection(v as string)}
+              style={{ width: 180 }}
+              options={[
+                { value: "", label: "All Collections" },
+                ...collectionOptions.map(c => ({ value: c.collection, label: c.collection })),
+              ]}
+            />
+            <Select
               value={window}
-              onChange={(e) => setWindow(e.target.value)}
-            >
-              <option value="24h">Last 24 Hours</option>
-              <option value="7d">Last 7 Days</option>
-              <option value="30d">Last 30 Days</option>
-            </select>
-            <RefButton variant="outline" icon={Calendar} onClick={loadData}>
-              Sync
-            </RefButton>
+              onChange={(v) => setWindow(v as string)}
+              style={{ width: 130 }}
+              options={WINDOWS.map(w => ({
+                value: w,
+                label: w === "1h" ? "Last 1h" : w === "6h" ? "Last 6h" : w === "24h" ? "Last 24h" : w === "7d" ? "Last 7d" : "Last 30d",
+              }))}
+            />
+            <RefButton variant="outline" icon={RefreshCw} onClick={loadAll}>Refresh</RefButton>
           </div>
         }
       />
 
       {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="animate-spin text-primary shrink-0" size={32} />
+        <div style={{ display: "flex", flexDirection: "column", gap: 16 }}>
+          <div className="rounded animate-pulse" style={{ height: 160, background: "hsl(var(--muted))" }} />
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 16 }}>
+            <div className="rounded animate-pulse" style={{ height: 320, background: "hsl(var(--muted))" }} />
+            <div className="rounded animate-pulse" style={{ height: 320, background: "hsl(var(--muted))" }} />
+          </div>
         </div>
-      ) : metrics ? (
-        <div className="space-y-6">
-          {/* Metrics KPIs Row */}
-          <div className="grid grid-cols-5 gap-4">
-            <div className="ref-card p-4 flex flex-col justify-between mono">
-              <div>
-                <span className="text-muted-foreground block text-[9px]">TOTAL RAG RUNS</span>
-                <span className="font-bold text-xl block mt-1 text-primary">
-                  {metrics.queryCount.toLocaleString()}
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-2 block">Direct vector searches</span>
-            </div>
-
-            <div className="ref-card p-4 flex flex-col justify-between mono">
-              <div>
-                <span className="text-muted-foreground block text-[9px]">CONTEXT PRECISION</span>
-                <span className="font-bold text-xl block mt-1 text-green-500">
-                  {(metrics.avgContextPrecision * 100).toFixed(1)}%
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-2 block">Relevance of retrieved chunks</span>
-            </div>
-
-            <div className="ref-card p-4 flex flex-col justify-between mono">
-              <div>
-                <span className="text-muted-foreground block text-[9px]">CONTEXT RECALL</span>
-                <span className="font-bold text-xl block mt-1 text-green-500">
-                  {(metrics.avgContextRecall * 100).toFixed(1)}%
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-2 block">Completeness of source context</span>
-            </div>
-
-            <div className="ref-card p-4 flex flex-col justify-between mono">
-              <div>
-                <span className="text-muted-foreground block text-[9px]">CACHE HIT RATE</span>
-                <span className="font-bold text-xl block mt-1 text-blue-500">
-                  {(metrics.hitRate * 100).toFixed(1)}%
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-2 block">Embedding cache reuse rate</span>
-            </div>
-
-            <div className="ref-card p-4 flex flex-col justify-between mono">
-              <div>
-                <span className="text-muted-foreground block text-[9px]">AVERAGE LATENCY</span>
-                <span className="font-bold text-xl block mt-1 text-purple-500">
-                  {metrics.avgLatencyMs}ms
-                </span>
-              </div>
-              <span className="text-[10px] text-muted-foreground mt-2 block">Vector DB search time</span>
-            </div>
-          </div>
-
-          <div className="split-2 gap-6" style={{ gridTemplateColumns: "1.1fr 0.9fr" }}>
-            {/* Latency Distribution Chart */}
-            <div className="ref-card" style={{ padding: 20 }}>
-              <div className="flex items-center gap-2 border-b pb-4 mb-4">
-                <Clock size={16} className="text-primary shrink-0" />
-                <span className="mono font-semibold" style={{ fontSize: 13 }}>Search Latency Distribution</span>
-              </div>
-
-              <ResponsiveContainer width="100%" height={260}>
-                <BarChart data={metrics.latencyDistribution} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
-                  <CartesianGrid strokeDasharray="3 3" vertical={false} stroke="currentColor" opacity={0.08} />
-                  <XAxis
-                    dataKey="bucket"
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}
-                  />
-                  <YAxis
-                    tickLine={false}
-                    axisLine={false}
-                    tick={{ fontSize: 11, fill: "currentColor", opacity: 0.5 }}
-                  />
-                  <Tooltip
-                    contentStyle={{
-                      borderRadius: 8,
-                      border: "1px solid var(--border)",
-                      backgroundColor: "var(--card)",
-                      color: "var(--card-foreground)",
-                      fontSize: 12,
-                    }}
-                  />
-                  <Bar dataKey="count" fill="hsl(var(--primary-bright))" radius={[4, 4, 0, 0]} />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-
-            {/* Top Retrieval Queries */}
-            <div className="ref-card" style={{ padding: 20 }}>
-              <div className="flex items-center gap-2 border-b pb-4 mb-4">
-                <TrendingUp size={16} className="text-primary shrink-0" />
-                <span className="mono font-semibold" style={{ fontSize: 13 }}>Top retrieval queries</span>
-              </div>
-
-              <div className="border rounded-md overflow-hidden">
-                <table className="mono w-full text-left" style={{ fontSize: 11 }}>
-                  <thead className="bg-muted/40 border-b">
-                    <tr>
-                      <th className="p-2">Query Text</th>
-                      <th className="p-2">Frequency</th>
-                      <th className="p-2">Avg Relevance</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {metrics.topQueries.map((q, idx) => (
-                      <tr key={idx} className="border-b last:border-b-0 hover:bg-muted/10">
-                        <td className="p-2 font-semibold font-mono truncate max-w-[200px]" title={q.query}>
-                          {q.query}
-                        </td>
-                        <td className="p-2">{q.count.toLocaleString()}</td>
-                        <td className="p-2">
-                          <span className={`px-1.5 py-0.5 rounded text-[10px] font-bold ${
-                            q.avgScore >= 0.85 ? "text-green-500 bg-green-500/5 border border-green-500/10" : "text-yellow-500 bg-yellow-500/5 border border-yellow-500/10"
-                          }`}>
-                            {(q.avgScore * 100).toFixed(0)}%
-                          </span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+      ) : !metrics ? (
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", padding: "80px 0", color: "hsl(var(--muted-foreground))" }}>
+          <Activity size={48} style={{ opacity: 0.25, marginBottom: 12 }} />
+          <p style={{ fontSize: "0.8125rem" }}>Failed to load RAG metrics.</p>
         </div>
       ) : (
-        <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
-          <Activity size={48} className="stroke-1 mb-2 shrink-0" />
-          <p style={{ fontSize: 13 }}>Failed to load retrieval metrics.</p>
+        <div style={{ display: "flex", flexDirection: "column", gap: 18 }}>
+          {/* Drift alert strip */}
+          {drift.length > 0 && <RagDriftBanner snapshots={drift} />}
+
+          {/* Primary metric-rail: Queries · Precision · Recall · Faithfulness */}
+          <RagKpiStrip metrics={metrics} />
+
+          {/* Secondary metric-rail: Latency · Relevancy · Chunks · Hit Rate */}
+          <div className="metric-rail">
+            <div className="metric" style={{ padding: "14px 20px" }}>
+              <div className="m-lbl">Avg Latency</div>
+              <div className="m-val" style={{ fontSize: "1.5rem" }}>{Math.round(metrics.avgLatencyMs)}<span className="unit">ms</span></div>
+              <div className="mute" style={{ fontSize: 10, fontFamily: "var(--font-mono)", marginTop: 6 }}>
+                P95 {Math.round(metrics.p95LatencyMs)}ms · P99 {Math.round(metrics.p99LatencyMs)}ms
+              </div>
+            </div>
+            <div className="metric" style={{ padding: "14px 20px" }}>
+              <div className="m-lbl">Answer Relevancy</div>
+              <div className="m-val" style={{ fontSize: "1.5rem", color: scoreColor(metrics.avgAnswerRelevancy) }}>{(metrics.avgAnswerRelevancy * 100).toFixed(0)}<span className="unit">%</span></div>
+              <div className="mute" style={{ fontSize: 10, fontFamily: "var(--font-mono)", marginTop: 6 }}>
+                Query ↔ answer alignment
+              </div>
+            </div>
+            <div className="metric" style={{ padding: "14px 20px" }}>
+              <div className="m-lbl">Avg Chunks</div>
+              <div className="m-val" style={{ fontSize: "1.5rem" }}>{metrics.avgChunkCount.toFixed(1)}</div>
+              <div className="mute" style={{ fontSize: 10, fontFamily: "var(--font-mono)", marginTop: 6 }}>
+                Retrieved per query
+              </div>
+            </div>
+            <div className="metric" style={{ padding: "14px 20px" }}>
+              <div className="m-lbl">Cache Hit Rate</div>
+              <div className="m-val" style={{ fontSize: "1.5rem", color: "hsl(var(--llm))" }}>{(metrics.hitRate * 100).toFixed(0)}<span className="unit">%</span></div>
+              <div className="mute" style={{ fontSize: 10, fontFamily: "var(--font-mono)", marginTop: 6 }}>
+                Embedding cache reuse
+              </div>
+            </div>
+          </div>
+
+          {/* Charts row: Quality Trend + Latency Distribution */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+            <RefCard>
+              <CardHeader title="Quality Trend" sub="Precision · Recall · Faithfulness · Relevancy" />
+              <CardPad>
+                <RagTrendChart trend={trend} />
+              </CardPad>
+            </RefCard>
+            <RefCard>
+              <CardHeader title="Latency Distribution" sub="P50 · P95 · P99" />
+              <CardPad>
+                <RagLatencyBreakdown metrics={metrics} />
+              </CardPad>
+            </RefCard>
+          </div>
+
+          {/* Clusters + Collections row */}
+          <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 18 }}>
+            <RefCard>
+              <CardHeader title="Semantic Query Clusters" sub={`${clusters.filter(c => c.clusterId !== "noise").length} clusters`} />
+              <CardPad>
+                <RagClusterMap
+                  clusters={clusters}
+                  selected={selectedCluster}
+                  onSelect={c => setSelectedCluster(prev => prev === c.clusterId ? null : c.clusterId)}
+                />
+              </CardPad>
+            </RefCard>
+            <RefCard>
+              <CardHeader title="Collection Performance" />
+              <CardPad>
+                <div style={{ border: "1px solid hsl(var(--border))", borderRadius: "0.375rem", overflow: "hidden" }}>
+                  <table className="runs-table">
+                    <thead>
+                      <tr>
+                        <th>Collection</th>
+                        <th className="r">Queries</th>
+                        <th className="r">Precision</th>
+                        <th className="r">Faithfulness</th>
+                        <th className="r">Avg Lat</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {collectionOptions.length === 0 ? (
+                        <tr><td colSpan={5} style={{ textAlign: "center", padding: "24px 14px", color: "hsl(var(--muted-foreground))", fontSize: "0.75rem" }}>No collection data</td></tr>
+                      ) : collectionOptions.map(c => (
+                        <tr key={c.collection} onClick={() => setCollection(prev => prev === c.collection ? "" : c.collection)}>
+                          <td style={{ fontWeight: 500, fontFamily: "var(--font-mono)" }}>{c.collection}</td>
+                          <td className="r">{Number(c.query_count).toLocaleString()}</td>
+                          <td className="r"><ScoreBadge value={Number(c.avg_precision)} /></td>
+                          <td className="r"><ScoreBadge value={Number(c.avg_faithfulness)} /></td>
+                          <td className="r">{Math.round(Number(c.avg_latency_ms))}ms</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </CardPad>
+            </RefCard>
+          </div>
+
+          {/* Query log + drawer */}
+          <div style={{ display: "grid", gridTemplateColumns: activeQueryId ? "3fr 2fr" : "1fr", gap: 18 }}>
+            <RefCard>
+              <CardHeader title="Query Log" sub={`${queryTotal.toLocaleString()} queries`} />
+              <CardPad>
+                <div style={{ border: "1px solid hsl(var(--border))", borderRadius: "0.375rem", overflow: "hidden" }}>
+                  <table className="runs-table">
+                    <thead>
+                      <tr>
+                        <th>Query</th>
+                        <th>Collection</th>
+                        <th className="r">Latency</th>
+                        <th className="r">Precision</th>
+                        <th className="r">Recall</th>
+                        <th className="r">Faithfulness</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {queries.length === 0 ? (
+                        <tr><td colSpan={6} style={{ textAlign: "center", padding: "24px 14px", color: "hsl(var(--muted-foreground))", fontSize: "0.75rem" }}>No queries in this window</td></tr>
+                      ) : queries.map(q => (
+                        <tr
+                          key={q.queryId}
+                          onClick={() => setActiveQueryId(prev => prev === q.queryId ? null : q.queryId)}
+                          style={activeQueryId === q.queryId ? { background: "hsl(var(--primary)/0.08)" } : undefined}
+                        >
+                          <td style={{ maxWidth: 220, overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap", fontWeight: 500 }} title={q.query}>{q.query}</td>
+                          <td style={{ color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", fontSize: "0.6875rem" }}>{q.collection ?? "—"}</td>
+                          <td className="r">{q.latencyMs}ms</td>
+                          <td className="r"><ScoreBadge value={q.contextPrecision} /></td>
+                          <td className="r"><ScoreBadge value={q.contextRecall} /></td>
+                          <td className="r"><ScoreBadge value={q.faithfulness} /></td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginTop: 12, fontFamily: "var(--font-mono)", fontSize: "0.6875rem", color: "hsl(var(--muted-foreground))" }}>
+                  <span>Page {queryPage + 1} of {Math.max(1, Math.ceil(queryTotal / 20))}</span>
+                  <div style={{ display: "flex", gap: 4 }}>
+                    <button className="icon-btn" disabled={queryPage === 0} onClick={() => loadPage(queryPage - 1)}><ChevronLeft size={14} /></button>
+                    <button className="icon-btn" disabled={(queryPage + 1) * 20 >= queryTotal} onClick={() => loadPage(queryPage + 1)}><ChevronRight size={14} /></button>
+                  </div>
+                </div>
+              </CardPad>
+            </RefCard>
+            {activeQueryId && <RagQueryDrawer queryId={activeQueryId} onClose={() => setActiveQueryId(null)} />}
+          </div>
         </div>
       )}
     </div>
   );
+}
+
+function scoreColor(v: number | undefined): string {
+  if (v == null) return "hsl(var(--muted-foreground))";
+  if (v >= 0.85) return "hsl(var(--success))";
+  if (v >= 0.70) return "hsl(var(--warning))";
+  return "hsl(var(--error))";
 }

@@ -350,10 +350,81 @@ export interface RagMetrics {
   queryCount: number;
   avgContextPrecision: number;
   avgContextRecall: number;
-  avgLatencyMs: number;
+  avgFaithfulness: number;
+  avgAnswerRelevancy: number;
   hitRate: number;
+  avgLatencyMs: number;
+  p50LatencyMs: number;
+  p95LatencyMs: number;
+  p99LatencyMs: number;
+  avgChunkCount: number;
   latencyDistribution: { bucket: string; count: number }[];
-  topQueries: { query: string; count: number; avgScore: number }[];
+  topQueries: {
+    query: string;
+    count: number;
+    avg_score: number;
+    avg_faithfulness: number;
+    avg_latency_ms: number;
+  }[];
+  collections: {
+    collection: string;
+    query_count: number;
+    avg_latency_ms: number;
+    avg_precision: number;
+    avg_faithfulness: number;
+  }[];
+}
+
+export interface RagTrendPoint {
+  period: string;
+  query_count: number;
+  avg_precision: number;
+  avg_recall: number;
+  avg_faithfulness: number;
+  avg_answer_relevancy: number;
+  avg_latency_ms: number;
+  p95_latency_ms: number;
+}
+
+export interface RagCluster {
+  clusterId: string;
+  label: string;
+  representativeQuery: string;
+  memberCount: number;
+  totalQueryCount: number;
+  members: string[];
+}
+
+export interface RagDriftSnapshot {
+  snapshot_id: string;
+  collection: string;
+  period_start: string;
+  period_end: string;
+  mean_cosine_shift: number;
+  query_volume_delta: number;
+  precision_delta: number;
+  alert_level: "none" | "warning" | "critical";
+}
+
+export interface RagQueryEntry {
+  queryId: string;
+  runId: string;
+  spanId: string;
+  query: string;
+  collection: string | null;
+  latencyMs: number;
+  chunkCount: number;
+  topK: number;
+  contextPrecision: number | null;
+  contextRecall: number | null;
+  faithfulness: number | null;
+  answerRelevancy: number | null;
+  metadata: Record<string, unknown>;
+}
+
+export interface RagQueryDetail extends RagQueryEntry {
+  retrievedChunks: string[];
+  similarityScores: number[];
 }
 
 /* ── Audit Logs ───────────────────────────────────────────── */
@@ -364,7 +435,12 @@ export interface AuditLogEntry {
   userId: string;
   username?: string;
   action: string;
+  resourceType?: string;
+  resourceId?: string | null;
   ipAddress: string;
-  timestamp: string;
+  userAgent?: string;
+  success?: boolean;
+  details?: Record<string, unknown>;
+  createdAt: string;
 }
 

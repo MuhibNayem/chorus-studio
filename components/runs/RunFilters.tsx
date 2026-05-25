@@ -2,6 +2,7 @@
 
 import { Search, SlidersHorizontal, X } from "lucide-react";
 import FilterChip from "@/components/primitives/FilterChip";
+import { Select } from "@/components/ui/select";
 
 export default function RunFilters({
   filters,
@@ -57,17 +58,17 @@ export default function RunFilters({
       ))}
       <div style={{ marginLeft: "auto" }} className="flex items-center gap-2">
         <span className="mute" style={{ fontSize: 11 }}>Sort:</span>
-        <select
-          className="ref-input"
-          style={{ width: "auto", height: 28, paddingLeft: 8 }}
+        <Select
           value={sortBy}
-          onChange={(e) => onSort(e.target.value)}
-        >
-          <option value="started">Newest</option>
-          <option value="latency">Slowest</option>
-          <option value="cost">Most expensive</option>
-          <option value="tokens">Most tokens</option>
-        </select>
+          onChange={(v) => onSort(v as string)}
+          style={{ width: 160 }}
+          options={[
+            { value: "started", label: "Newest" },
+            { value: "latency", label: "Slowest" },
+            { value: "cost", label: "Most expensive" },
+            { value: "tokens", label: "Most tokens" },
+          ]}
+        />
       </div>
     </div>
   );

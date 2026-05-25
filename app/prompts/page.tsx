@@ -4,25 +4,291 @@ import { useEffect, useState, Suspense } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { api } from "@/lib/api";
 import PageHeader from "@/components/shared/PageHeader";
-import RefButton from "@/components/primitives/RefButton";
 import {
-  Plus,
-  Tag,
-  Trash2,
-  Play,
-  CheckCircle,
-  AlertTriangle,
-  FolderOpen,
-  GitCompare,
-  ExternalLink,
-  Loader2,
-  Calendar,
-  User,
-  Sliders,
-  Award
+  Plus, Tag, Trash2, Play, CheckCircle,
+  FolderOpen, GitCompare, ExternalLink, Loader2,
+  Calendar, User, Sliders, Award, X, Zap
 } from "lucide-react";
 import type { PromptVersion, PromptAbTest, Dataset } from "@/types";
+import { Select } from "@/components/ui/select";
 
+// ── Shared primitives ──────────────────────────────────────────────────────────
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <div style={{
+      fontSize: 10,
+      textTransform: "uppercase" as const,
+      letterSpacing: "0.1em",
+      fontWeight: 500,
+      color: "hsl(var(--muted-foreground))",
+      fontFamily: "var(--font-mono)",
+      marginBottom: 7,
+    }}>
+      {children}
+    </div>
+  );
+}
+
+function FieldInput({
+  label, value, onChange, placeholder, type = "text", required, rows, style = {}
+}: {
+  label: string; value: string | number; onChange: (v: string) => void;
+  placeholder?: string; type?: string; required?: boolean; rows?: number; style?: React.CSSProperties;
+}) {
+  const base: React.CSSProperties = {
+    width: "100%", fontFamily: "var(--font-mono)", fontSize: 12.5,
+    background: "hsl(var(--card-elev)/0.7)", border: "1px solid hsl(var(--border)/0.2)",
+    borderRadius: 10, color: "hsl(var(--foreground))", outline: "none",
+    transition: "border-color 150ms ease, box-shadow 150ms ease", ...style,
+  };
+  const focusStyle = { borderColor: "hsl(var(--primary)/0.35)", boxShadow: "0 0 0 3px hsl(var(--primary)/0.08)" };
+  const blurStyle = { borderColor: "hsl(var(--border)/0.2)", boxShadow: "none" };
+
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <SectionLabel>{label}</SectionLabel>
+      {rows ? (
+        <textarea
+          required={required} placeholder={placeholder} value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          rows={rows}
+          style={{ ...base, padding: "12px 14px", lineHeight: 1.65, resize: "none" }}
+          onFocus={(e) => Object.assign(e.target.style, focusStyle)}
+          onBlur={(e) => Object.assign(e.target.style, blurStyle)}
+        />
+      ) : (
+        <input
+          type={type} required={required} placeholder={placeholder} value={String(value)}
+          onChange={(e) => onChange(e.target.value)}
+          style={{ ...base, height: 36, padding: "0 12px" }}
+          onFocus={(e) => Object.assign(e.target.style, focusStyle)}
+          onBlur={(e) => Object.assign(e.target.style, blurStyle)}
+        />
+      )}
+    </div>
+  );
+}
+
+function FieldSelect({
+  label, value, onChange, children
+}: {
+  label: string; value: string; onChange: (v: string) => void; children: React.ReactNode;
+}) {
+  return (
+    <div style={{ display: "flex", flexDirection: "column", gap: 5 }}>
+      <SectionLabel>{label}</SectionLabel>
+      <Select value={value} onChange={(v) => onChange(v as string)}>
+        {children}
+      </Select>
+    </div>
+  );
+}
+
+// ── Segmented tab control ──────────────────────────────────────────────────────
+function SegmentedTabs({
+  value, onChange,
+  tabs,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  tabs: { value: string; label: string; icon: React.ElementType }[];
+}) {
+  return (
+    <div style={{
+      display: "inline-flex", alignItems: "center",
+      background: "hsl(var(--muted)/0.5)", borderRadius: 11,
+      padding: 3, gap: 2,
+    }}>
+      {tabs.map(({ value: v, label, icon: Icon }) => {
+        const active = v === value;
+        return (
+          <button
+            key={v} type="button" onClick={() => onChange(v)}
+            style={{
+              display: "flex", alignItems: "center", gap: 6,
+              padding: "6px 14px", borderRadius: 8,
+              fontSize: 12.5, fontWeight: 500,
+              background: active ? "hsl(var(--card))" : "transparent",
+              color: active ? "hsl(var(--foreground))" : "hsl(var(--muted-foreground))",
+              boxShadow: active ? "0 1px 3px hsl(0 0% 0% / 0.2)" : "none",
+              border: "none", cursor: "pointer",
+              transition: "background 150ms ease, color 150ms ease, box-shadow 150ms ease",
+            }}
+          >
+            <Icon size={13} />
+            {label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+// ── List item (sidebar) ────────────────────────────────────────────────────────
+function ListItem({
+  active, onClick, children,
+}: {
+  active: boolean; onClick: () => void; children: React.ReactNode;
+}) {
+  return (
+    <div
+      onClick={onClick}
+      style={{
+        padding: "11px 14px", borderRadius: 10, cursor: "pointer",
+        background: active ? "hsl(var(--primary)/0.07)" : "transparent",
+        position: "relative", transition: "background 100ms ease",
+        borderLeft: active ? "2px solid hsl(var(--primary-bright))" : "2px solid transparent",
+      }}
+      onMouseEnter={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "hsl(var(--muted)/0.35)"; }}
+      onMouseLeave={(e) => { if (!active) (e.currentTarget as HTMLDivElement).style.background = "transparent"; }}
+    >
+      {children}
+    </div>
+  );
+}
+
+// ── Stat tile ──────────────────────────────────────────────────────────────────
+function StatTile({ label, value, color }: { label: string; value: string; color: string }) {
+  return (
+    <div style={{
+      flex: 1, borderRadius: 12, padding: "14px 16px",
+      background: `hsl(${color}/0.07)`,
+      border: `1px solid hsl(${color}/0.12)`,
+    }}>
+      <div style={{ fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.1em", fontWeight: 500, color: `hsl(${color}/0.7)`, fontFamily: "var(--font-mono)", marginBottom: 6 }}>{label}</div>
+      <div style={{ fontSize: 22, fontWeight: 600, fontFamily: "var(--font-mono)", letterSpacing: "-0.03em", color: `hsl(${color})` }}>{value}</div>
+    </div>
+  );
+}
+
+// ── Empty state ────────────────────────────────────────────────────────────────
+function EmptyState({ icon: Icon, title, sub }: { icon: React.ElementType; title: string; sub: string }) {
+  return (
+    <div style={{
+      flex: 1, display: "flex", flexDirection: "column", alignItems: "center",
+      justifyContent: "center", gap: 14, minHeight: 260, position: "relative", overflow: "hidden",
+    }}>
+      <div style={{
+        position: "absolute", width: 200, height: 200, borderRadius: "50%",
+        background: "radial-gradient(circle, hsl(var(--primary)/0.07) 0%, transparent 70%)",
+        pointerEvents: "none",
+      }} />
+      <div style={{
+        width: 44, height: 44, borderRadius: 14,
+        background: "linear-gradient(135deg, hsl(var(--primary)/0.12), hsl(var(--rag)/0.12))",
+        display: "grid", placeItems: "center",
+        border: "1px solid hsl(var(--primary)/0.1)",
+      }}>
+        <Icon size={20} style={{ color: "hsl(var(--primary-bright))", opacity: 0.7 }} />
+      </div>
+      <div style={{ textAlign: "center", zIndex: 1 }}>
+        <div style={{ fontSize: 13, fontWeight: 500, color: "hsl(var(--foreground-dim))", marginBottom: 4 }}>{title}</div>
+        <div style={{ fontSize: 11.5, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>{sub}</div>
+      </div>
+    </div>
+  );
+}
+
+// ── Modal wrapper ──────────────────────────────────────────────────────────────
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div style={{
+      position: "fixed", inset: 0, zIndex: 50,
+      background: "hsl(var(--background)/0.75)",
+      backdropFilter: "blur(8px)",
+      display: "flex", alignItems: "center", justifyContent: "center", padding: 24,
+    }}>
+      <div style={{
+        width: "100%", maxWidth: 520,
+        background: "hsl(var(--card))",
+        borderRadius: 18,
+        border: "1px solid hsl(var(--border)/0.25)",
+        boxShadow: "0 24px 80px hsl(0 0% 0% / 0.4)",
+        overflow: "hidden",
+      }}>
+        <div style={{
+          padding: "18px 22px 16px",
+          display: "flex", alignItems: "center", justifyContent: "space-between",
+          background: "hsl(var(--card-elev)/0.6)",
+        }}>
+          <span style={{ fontSize: 14, fontWeight: 600, letterSpacing: "-0.02em" }}>{title}</span>
+          <button
+            type="button" onClick={onClose}
+            style={{
+              width: 28, height: 28, borderRadius: 8, border: "none",
+              background: "hsl(var(--muted)/0.5)", color: "hsl(var(--muted-foreground))",
+              display: "grid", placeItems: "center", cursor: "pointer",
+              transition: "background 120ms ease",
+            }}
+            onMouseEnter={(e) => (e.currentTarget.style.background = "hsl(var(--muted))")}
+            onMouseLeave={(e) => (e.currentTarget.style.background = "hsl(var(--muted)/0.5))")}
+          >
+            <X size={13} />
+          </button>
+        </div>
+        <div style={{ padding: "20px 22px 22px", display: "flex", flexDirection: "column", gap: 16 }}>
+          {children}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ModalFooter({ onCancel, submitLabel, disabled }: { onCancel: () => void; submitLabel: string; disabled?: boolean }) {
+  return (
+    <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, paddingTop: 4 }}>
+      <button
+        type="button" onClick={onCancel}
+        style={{
+          height: 34, padding: "0 14px", borderRadius: 9, fontSize: 13,
+          background: "hsl(var(--muted)/0.5)", border: "none",
+          color: "hsl(var(--foreground-dim))", cursor: "pointer",
+          transition: "background 120ms ease",
+        }}
+        onMouseEnter={(e) => (e.currentTarget.style.background = "hsl(var(--muted))")}
+        onMouseLeave={(e) => (e.currentTarget.style.background = "hsl(var(--muted)/0.5))")}
+      >
+        Cancel
+      </button>
+      <button
+        type="submit" disabled={disabled}
+        style={{
+          height: 34, padding: "0 18px", borderRadius: 9, fontSize: 13, fontWeight: 600,
+          background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-bright)))",
+          border: "none", color: "white", cursor: "pointer",
+          boxShadow: "0 2px 10px hsl(var(--primary)/0.3)",
+          opacity: disabled ? 0.4 : 1, transition: "opacity 150ms ease",
+        }}
+      >
+        {submitLabel}
+      </button>
+    </div>
+  );
+}
+
+// ── A/B status badge ───────────────────────────────────────────────────────────
+function StatusBadge({ status }: { status: string }) {
+  const cfg =
+    status === "COMPLETED" ? { color: "var(--success)", label: "Completed" } :
+    status === "RUNNING"   ? { color: "var(--llm)",     label: "Running"   } :
+                             { color: "var(--warning)",  label: "Pending"   };
+  return (
+    <span style={{
+      display: "inline-flex", alignItems: "center", gap: 5,
+      padding: "2px 9px", borderRadius: 999, fontSize: 10.5,
+      fontFamily: "var(--font-mono)", fontWeight: 500,
+      background: `hsl(${cfg.color}/0.1)`,
+      color: `hsl(${cfg.color})`,
+      border: `1px solid hsl(${cfg.color}/0.2)`,
+    }}>
+      <span style={{ width: 5, height: 5, borderRadius: "50%", background: `hsl(${cfg.color})`, flexShrink: 0 }} />
+      {cfg.label}
+    </span>
+  );
+}
+
+// ── Main component ─────────────────────────────────────────────────────────────
 function PromptsContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -33,54 +299,28 @@ function PromptsContent() {
   const [selectedVersion, setSelectedVersion] = useState<PromptVersion | null>(null);
   const [selectedTest, setSelectedTest] = useState<PromptAbTest | null>(null);
   const [loading, setLoading] = useState(true);
-
-  // Sync preloaded dataset query parameter from Datasets page
-  useEffect(() => {
-    const preloadedDatasetId = searchParams.get("preloadedDatasetId");
-    const tab = searchParams.get("activeTab");
-    if (tab === "ab-tests") {
-      setActiveTab("ab-tests");
-    }
-    if (preloadedDatasetId) {
-      setActiveTab("ab-tests");
-      setNewAbTest((prev) => ({
-        ...prev,
-        datasetId: preloadedDatasetId,
-      }));
-      setShowAbModal(true);
-    }
-  }, [searchParams]);
-  const [modelOptions, setModelOptions] = useState<string[]>([
-    "gpt-4o",
-    "gpt-4o-mini",
-    "claude-3-5-sonnet",
-    "gemini-2.0-flash",
-  ]);
+  const [modelOptions, setModelOptions] = useState(["gpt-4o", "gpt-4o-mini", "claude-sonnet-4-6", "gemini-2.0-flash"]);
   const [customModel, setCustomModel] = useState("");
-
-  // Form states
   const [showCreateModal, setShowCreateModal] = useState(false);
   const [showAbModal, setShowAbModal] = useState(false);
-  const [newVersion, setNewVersion] = useState({
-    name: "",
-    content: "",
-    model: "gpt-4o",
-    temperature: 0.7,
-    maxTokens: 2048,
-    createdBy: "admin@chorus.dev",
-  });
-  const [newAbTest, setNewAbTest] = useState({
-    datasetId: "",
-    promptAId: "",
-    promptBId: "",
-  });
+  const [newVersion, setNewVersion] = useState({ name: "", content: "", model: "gpt-4o", temperature: 0.7, maxTokens: 2048, createdBy: "admin@chorus.dev" });
+  const [newAbTest, setNewAbTest] = useState({ datasetId: "", promptAId: "", promptBId: "" });
   const [newTag, setNewTag] = useState("");
   const [executingTestId, setExecutingTestId] = useState<string | null>(null);
   const [abResults, setAbResults] = useState<Record<string, any>>({});
 
   useEffect(() => {
-    loadData();
-  }, []);
+    const preloadedDatasetId = searchParams.get("preloadedDatasetId");
+    const tab = searchParams.get("activeTab");
+    if (tab === "ab-tests") setActiveTab("ab-tests");
+    if (preloadedDatasetId) {
+      setActiveTab("ab-tests");
+      setNewAbTest((prev) => ({ ...prev, datasetId: preloadedDatasetId }));
+      setShowAbModal(true);
+    }
+  }, [searchParams]);
+
+  useEffect(() => { loadData(); }, []);
 
   const loadData = async () => {
     setLoading(true);
@@ -91,66 +331,38 @@ function PromptsContent() {
         api.listDatasets(0, 50).catch(() => ({ items: [], total: 0 })),
         api.listModels().catch(() => []),
       ]);
-
       setVersions(vData.items);
       setAbTests(tData.items);
       setDatasets(dData.items);
-
-      const discoveredModels = (mData || []).map((m) => m.model).filter(Boolean);
-      const defaults = ["gpt-4o", "gpt-4o-mini", "claude-3-5-sonnet", "gemini-2.0-flash"];
-      const uniqueModels = Array.from(new Set([...defaults, ...discoveredModels]));
-      setModelOptions(uniqueModels);
-
-      if (vData.items.length > 0) {
-        // Fetch full version details for tags if needed
-        setSelectedVersion(vData.items[0]);
-      }
-      if (tData.items.length > 0) {
-        setSelectedTest(tData.items[0]);
-      }
-    } catch (e) {
-      console.error(e);
-    } finally {
-      setLoading(false);
-    }
+      const discovered = (mData || []).map((m: any) => m.model).filter(Boolean);
+      setModelOptions(Array.from(new Set(["gpt-4o", "gpt-4o-mini", "claude-sonnet-4-6", "gemini-2.0-flash", ...discovered])));
+      if (vData.items.length > 0) setSelectedVersion(vData.items[0]);
+      if (tData.items.length > 0) setSelectedTest(tData.items[0]);
+    } catch (e) { console.error(e); }
+    finally { setLoading(false); }
   };
 
   const handleCreateVersion = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newVersion.name || !newVersion.content) return;
     try {
-      const finalModel = newVersion.model === "custom" ? customModel : newVersion.model;
-      const v = await api.createPromptVersion({
-        ...newVersion,
-        model: finalModel,
-      });
+      const v = await api.createPromptVersion({ ...newVersion, model: newVersion.model === "custom" ? customModel : newVersion.model });
       setVersions([v, ...versions]);
       setSelectedVersion(v);
       setShowCreateModal(false);
-      setNewVersion({
-        name: "",
-        content: "",
-        model: "gpt-4o",
-        temperature: 0.7,
-        maxTokens: 2048,
-        createdBy: "admin@chorus.dev",
-      });
+      setNewVersion({ name: "", content: "", model: "gpt-4o", temperature: 0.7, maxTokens: 2048, createdBy: "admin@chorus.dev" });
       setCustomModel("");
-    } catch (err) {
-      alert("Failed to create version: " + (err instanceof Error ? err.message : String(err)));
-    }
+    } catch (err) { alert("Failed to create: " + (err instanceof Error ? err.message : String(err))); }
   };
 
   const handleDeleteVersion = async (versionId: string) => {
-    if (!confirm("Are you sure you want to delete this prompt version?")) return;
+    if (!confirm("Delete this prompt version?")) return;
     try {
       await api.deletePromptVersion(versionId);
       const filtered = versions.filter((v) => v.versionId !== versionId);
       setVersions(filtered);
       setSelectedVersion(filtered[0] || null);
-    } catch (err) {
-      alert("Failed to delete: " + (err instanceof Error ? err.message : String(err)));
-    }
+    } catch (err) { alert("Failed to delete: " + (err instanceof Error ? err.message : String(err))); }
   };
 
   const handleAddTag = async (e: React.FormEvent) => {
@@ -158,31 +370,21 @@ function PromptsContent() {
     if (!selectedVersion || !newTag.trim()) return;
     try {
       await api.addPromptTag(selectedVersion.versionId, newTag.trim());
-      const updated = {
-        ...selectedVersion,
-        tags: [...(selectedVersion.tags || []), newTag.trim()],
-      };
+      const updated = { ...selectedVersion, tags: [...(selectedVersion.tags || []), newTag.trim()] };
       setSelectedVersion(updated);
-      setVersions(versions.map((v) => (v.versionId === updated.versionId ? updated : v)));
+      setVersions(versions.map((v) => v.versionId === updated.versionId ? updated : v));
       setNewTag("");
-    } catch (err) {
-      alert("Failed to add tag: " + (err instanceof Error ? err.message : String(err)));
-    }
+    } catch (err) { alert("Failed to add tag: " + (err instanceof Error ? err.message : String(err))); }
   };
 
   const handleRemoveTag = async (tagName: string) => {
     if (!selectedVersion) return;
     try {
       await api.removePromptTag(selectedVersion.versionId, tagName);
-      const updated = {
-        ...selectedVersion,
-        tags: (selectedVersion.tags || []).filter((t) => t !== tagName),
-      };
+      const updated = { ...selectedVersion, tags: (selectedVersion.tags || []).filter((t) => t !== tagName) };
       setSelectedVersion(updated);
-      setVersions(versions.map((v) => (v.versionId === updated.versionId ? updated : v)));
-    } catch (err) {
-      alert("Failed to remove tag: " + (err instanceof Error ? err.message : String(err)));
-    }
+      setVersions(versions.map((v) => v.versionId === updated.versionId ? updated : v));
+    } catch (err) { alert("Failed to remove tag: " + (err instanceof Error ? err.message : String(err))); }
   };
 
   const handleCreateAbTest = async (e: React.FormEvent) => {
@@ -194,546 +396,481 @@ function PromptsContent() {
       setSelectedTest(test);
       setShowAbModal(false);
       setNewAbTest({ datasetId: "", promptAId: "", promptBId: "" });
-    } catch (err) {
-      alert("Failed to create A/B test: " + (err instanceof Error ? err.message : String(err)));
-    }
+    } catch (err) { alert("Failed to create A/B test: " + (err instanceof Error ? err.message : String(err))); }
   };
 
   const handleRunAbTest = async (testId: string) => {
     setExecutingTestId(testId);
     try {
-      const res = await api.executePromptAbTest(testId);
-      setAbResults((prev) => ({ ...prev, [testId]: res }));
-      
-      // Reload tests to get updated status
+      await api.executePromptAbTest(testId);
       const tData = await api.listPromptAbTests(0, 50);
       setAbTests(tData.items);
-      const updated = tData.items.find((t) => t.testId === testId);
-      if (updated) setSelectedTest(updated);
-    } catch (err) {
-      alert("A/B Test Run Failed: " + (err instanceof Error ? err.message : String(err)));
-    } finally {
-      setExecutingTestId(null);
-    }
+      setSelectedTest(tData.items.find((t: PromptAbTest) => t.testId === testId) || null);
+    } catch (err) { alert("A/B test failed: " + (err instanceof Error ? err.message : String(err))); }
+    finally { setExecutingTestId(null); }
   };
 
   const openPlayground = (version: PromptVersion) => {
-    // Navigate to playground preloaded with prompt version content
     router.push(`/playground?promptId=${version.versionId}&content=${encodeURIComponent(version.content)}&model=${version.model || ""}`);
   };
 
+  // ── Loading ──────────────────────────────────────────────────────────────────
+  if (loading) {
+    return (
+      <div style={{ flex: 1, display: "flex", alignItems: "center", justifyContent: "center", minHeight: 400 }}>
+        <div style={{ display: "flex", flexDirection: "column", alignItems: "center", gap: 12 }}>
+          <div style={{ width: 40, height: 40, borderRadius: 12, background: "hsl(var(--primary)/0.08)", display: "grid", placeItems: "center", border: "1px solid hsl(var(--primary)/0.1)" }}>
+            <Loader2 size={18} className="animate-spin" style={{ color: "hsl(var(--primary-bright))" }} />
+          </div>
+          <span style={{ fontSize: 12.5, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>Loading prompts…</span>
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="flex flex-col gap-5 h-full">
+    <div style={{ display: "flex", flexDirection: "column", gap: 20, height: "100%" }}>
       <PageHeader
         title="Prompt Registry"
         accent="/ workspace"
-        sub="Manage prompt version controls, run statistical A/B tests, and debug templates in real-time."
+        sub="Version-control prompts, run statistical A/B tests, and iterate in the Playground."
         actions={
-          <div className="flex gap-2">
-            <RefButton
-              variant={activeTab === "registry" ? "primary" : "outline"}
-              icon={FolderOpen}
-              onClick={() => setActiveTab("registry")}
-            >
-              Registry
-            </RefButton>
-            <RefButton
-              variant={activeTab === "ab-tests" ? "primary" : "outline"}
-              icon={GitCompare}
-              onClick={() => setActiveTab("ab-tests")}
-            >
-              A/B Tests
-            </RefButton>
-          </div>
+          <SegmentedTabs
+            value={activeTab}
+            onChange={(v) => setActiveTab(v as "registry" | "ab-tests")}
+            tabs={[
+              { value: "registry", label: "Registry", icon: FolderOpen },
+              { value: "ab-tests", label: "A/B Tests", icon: GitCompare },
+            ]}
+          />
         }
       />
 
-      {loading ? (
-        <div className="flex items-center justify-center py-20">
-          <Loader2 className="animate-spin text-primary shrink-0" size={32} />
-        </div>
-      ) : activeTab === "registry" ? (
-        /* ── Prompt Registry Master-Detail Layout ── */
-        <div className="split-2 h-full min-h-[550px] gap-6" style={{ gridTemplateColumns: "1fr 2fr" }}>
-          {/* Versions Sidebar */}
-          <div className="ref-card flex flex-col justify-between" style={{ padding: 16 }}>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="mono" style={{ fontSize: 13, textTransform: "uppercase", opacity: 0.8 }}>Templates</h3>
-                <RefButton
-                  variant="outline"
-                  icon={Plus}
-                  style={{ padding: "4px 8px", fontSize: 11 }}
-                  onClick={() => setShowCreateModal(true)}
-                >
-                  Create
-                </RefButton>
-              </div>
+      <div style={{ display: "grid", gridTemplateColumns: "1fr 2fr", gap: 16, flex: 1, minHeight: 560 }}>
 
-              <div className="space-y-2 overflow-y-auto max-h-[480px]">
-                {versions.length === 0 ? (
-                  <p className="text-muted-foreground py-10 text-center" style={{ fontSize: 12 }}>No versions found.</p>
-                ) : (
-                  versions.map((v) => (
-                    <div
-                      key={v.versionId}
-                      className={`ref-card cursor-pointer p-3 transition hover:border-primary/50 ${
-                        selectedVersion?.versionId === v.versionId ? "border-primary bg-primary/5" : "border-border"
-                      }`}
-                      onClick={() => setSelectedVersion(v)}
-                    >
-                      <div className="flex items-start justify-between">
-                        <div>
-                          <h4 className="mono font-semibold" style={{ fontSize: 13 }}>{v.name}</h4>
-                          <span className="mono" style={{ fontSize: 10, opacity: 0.6 }}>{v.versionId.substring(0, 8)}</span>
+        {/* ── LEFT sidebar ──────────────────────────────────────────────── */}
+        <div className="ref-card" style={{ display: "flex", flexDirection: "column", padding: 0, overflow: "hidden" }}>
+
+          {/* Sidebar header */}
+          <div style={{ padding: "14px 16px 12px", display: "flex", alignItems: "center", justifyContent: "space-between", background: "hsl(var(--card-elev)/0.5)" }}>
+            <span style={{ fontSize: 10, textTransform: "uppercase" as const, letterSpacing: "0.1em", fontWeight: 600, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>
+              {activeTab === "registry" ? `Templates · ${versions.length}` : `Trials · ${abTests.length}`}
+            </span>
+            <button
+              type="button"
+              onClick={() => activeTab === "registry" ? setShowCreateModal(true) : setShowAbModal(true)}
+              style={{
+                display: "flex", alignItems: "center", gap: 5, height: 26, padding: "0 10px",
+                borderRadius: 8, fontSize: 11.5, fontWeight: 500,
+                background: "hsl(var(--primary)/0.1)", color: "hsl(var(--primary-bright))",
+                border: "1px solid hsl(var(--primary)/0.15)", cursor: "pointer",
+                transition: "background 120ms ease",
+              }}
+              onMouseEnter={(e) => (e.currentTarget.style.background = "hsl(var(--primary)/0.18))")}
+              onMouseLeave={(e) => (e.currentTarget.style.background = "hsl(var(--primary)/0.1))")}
+            >
+              <Plus size={12} />
+              {activeTab === "registry" ? "New" : "New A/B"}
+            </button>
+          </div>
+
+          {/* List */}
+          <div style={{ flex: 1, overflowY: "auto", padding: "8px 8px" }}>
+            {activeTab === "registry" ? (
+              versions.length === 0 ? (
+                <EmptyState icon={FolderOpen} title="No templates yet" sub="Create your first prompt version" />
+              ) : (
+                versions.map((v) => (
+                  <ListItem key={v.versionId} active={selectedVersion?.versionId === v.versionId} onClick={() => setSelectedVersion(v)}>
+                    <div style={{ display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 8 }}>
+                      <div style={{ minWidth: 0 }}>
+                        <div style={{ fontSize: 13, fontWeight: 600, letterSpacing: "-0.01em", fontFamily: "var(--font-mono)", whiteSpace: "nowrap", overflow: "hidden", textOverflow: "ellipsis" }}>
+                          {v.name}
                         </div>
-                        {v.model && (
-                          <span className="mono badge-count" style={{ fontSize: 9 }}>{v.model}</span>
-                        )}
+                        <div style={{ fontSize: 10, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", marginTop: 2 }}>
+                          {v.versionId.substring(0, 8)}
+                        </div>
                       </div>
-                      <div className="flex flex-wrap gap-1 mt-2">
-                        {v.tags?.map((t) => (
-                          <span key={t} className="mono" style={{ fontSize: 9, padding: "1px 4px", borderRadius: 3, border: "1px solid hsl(var(--muted))", background: "hsl(var(--muted) / 0.3)" }}>
+                      {v.model && (
+                        <span style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", color: "hsl(var(--muted-foreground))", background: "hsl(var(--muted)/0.5)", padding: "2px 6px", borderRadius: 5, whiteSpace: "nowrap", flexShrink: 0 }}>
+                          {v.model.split("/").pop()}
+                        </span>
+                      )}
+                    </div>
+                    {v.tags && v.tags.length > 0 && (
+                      <div style={{ display: "flex", flexWrap: "wrap", gap: 4, marginTop: 7 }}>
+                        {v.tags.map((t) => (
+                          <span key={t} style={{ fontSize: 9.5, fontFamily: "var(--font-mono)", padding: "1px 7px", borderRadius: 999, background: "hsl(var(--primary)/0.08)", color: "hsl(var(--primary-bright)/0.8)", border: "1px solid hsl(var(--primary)/0.12)" }}>
                             {t}
                           </span>
                         ))}
                       </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* Details Section */}
-          <div className="ref-card flex flex-col justify-between" style={{ padding: 20 }}>
-            {selectedVersion ? (
-              <div className="space-y-5 h-full flex flex-col justify-between">
-                <div className="space-y-4">
-                  {/* Header metadata */}
-                  <div className="flex items-center justify-between border-b pb-4">
-                    <div>
-                      <h2 className="mono font-bold" style={{ fontSize: 18 }}>{selectedVersion.name}</h2>
-                      <p className="mono text-muted-foreground" style={{ fontSize: 11 }}>UUID: {selectedVersion.versionId}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <RefButton
-                        variant="primary"
-                        icon={ExternalLink}
-                        onClick={() => openPlayground(selectedVersion)}
-                      >
-                        Playground
-                      </RefButton>
-                      <RefButton
-                        variant="outline"
-                        icon={Trash2}
-                        onClick={() => handleDeleteVersion(selectedVersion.versionId)}
-                      >
-                        Delete
-                      </RefButton>
-                    </div>
-                  </div>
-
-                  {/* Metadata Rail */}
-                  <div className="grid grid-cols-3 gap-4 border-b pb-4">
-                    <div className="flex items-center gap-2">
-                      <Calendar size={14} className="text-muted-foreground shrink-0" />
-                      <div>
-                        <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Created At</span>
-                        <span className="mono" style={{ fontSize: 12 }}>{new Date(selectedVersion.createdAt).toLocaleDateString()}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <User size={14} className="text-muted-foreground shrink-0" />
-                      <div>
-                        <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Author</span>
-                        <span className="mono" style={{ fontSize: 12 }}>{selectedVersion.createdBy || "system"}</span>
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <Sliders size={14} className="text-muted-foreground shrink-0" />
-                      <div>
-                        <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Parameters</span>
-                        <span className="mono block" style={{ fontSize: 11 }}>Model: {selectedVersion.model || "—"}</span>
-                        <span className="mono block" style={{ fontSize: 11 }}>Temp: {selectedVersion.temperature ?? "—"} · MaxTok: {selectedVersion.maxTokens ?? "—"}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Prompt Text Editor (Read-Only) */}
-                  <div className="space-y-1">
-                    <label className="mono block" style={{ fontSize: 12, opacity: 0.8 }}>Prompt Template Body</label>
-                    <div className="mono text-foreground font-mono p-4 rounded-md border bg-muted/40 max-h-[300px] overflow-y-auto whitespace-pre-wrap" style={{ fontSize: 12, lineHeight: 1.5 }}>
-                      {selectedVersion.content}
-                    </div>
-                  </div>
-
-                  {/* Tag Management */}
-                  <div className="space-y-2 border-t pt-4">
-                    <span className="mono block" style={{ fontSize: 12, opacity: 0.8 }}>Manage Version Tags</span>
-                    <div className="flex flex-wrap gap-2 items-center">
-                      {(selectedVersion.tags || []).map((t) => (
-                        <span key={t} className="mono flex items-center gap-1 border px-2 py-0.5 rounded-md" style={{ fontSize: 11, background: "hsl(var(--muted)/0.2)" }}>
-                          <Tag size={10} className="text-primary shrink-0" />
-                          {t}
-                          <button onClick={() => handleRemoveTag(t)} className="text-red-500 hover:text-red-700 ml-1 font-bold">×</button>
-                        </span>
-                      ))}
-                      <form onSubmit={handleAddTag} className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Add tag..."
-                          className="mono px-2 py-0.5 border rounded-md"
-                          style={{ fontSize: 11, background: "transparent", width: 100 }}
-                          value={newTag}
-                          onChange={(e) => setNewTag(e.target.value)}
-                        />
-                        <button type="submit" className="border px-2 py-0.5 rounded-md text-primary text-[11px] hover:bg-muted/30">+</button>
-                      </form>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            ) : (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
-                <FolderOpen size={48} className="stroke-1 mb-2 shrink-0" />
-                <p style={{ fontSize: 13 }}>Select or create a template to begin version control.</p>
-              </div>
-            )}
-          </div>
-        </div>
-      ) : (
-        /* ── Statistical A/B Testing Tab ── */
-        <div className="split-2 h-full min-h-[550px] gap-6" style={{ gridTemplateColumns: "1fr 2fr" }}>
-          {/* A/B Test List */}
-          <div className="ref-card flex flex-col justify-between" style={{ padding: 16 }}>
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
-                <h3 className="mono" style={{ fontSize: 13, textTransform: "uppercase", opacity: 0.8 }}>Active Trials</h3>
-                <RefButton
-                  variant="outline"
-                  icon={Plus}
-                  style={{ padding: "4px 8px", fontSize: 11 }}
-                  onClick={() => setShowAbModal(true)}
-                >
-                  New A/B
-                </RefButton>
-              </div>
-
-              <div className="space-y-2 overflow-y-auto max-h-[480px]">
-                {abTests.length === 0 ? (
-                  <p className="text-muted-foreground py-10 text-center" style={{ fontSize: 12 }}>No A/B tests found.</p>
-                ) : (
-                  abTests.map((t) => (
-                    <div
-                      key={t.testId}
-                      className={`ref-card cursor-pointer p-3 transition hover:border-primary/50 ${
-                        selectedTest?.testId === t.testId ? "border-primary bg-primary/5" : "border-border"
-                      }`}
-                      onClick={() => setSelectedTest(t)}
-                    >
-                      <div className="flex items-center justify-between">
-                        <h4 className="mono font-semibold" style={{ fontSize: 12 }}>A/B Test {t.testId.substring(0, 8)}</h4>
-                        <span className={`mono text-[10px] px-1.5 py-0.5 rounded-full border ${
-                          t.status === "COMPLETED" ? "text-green-500 border-green-500/20 bg-green-500/5" :
-                          t.status === "RUNNING" ? "text-blue-500 border-blue-500/20 bg-blue-500/5 animate-pulse" :
-                          "text-yellow-500 border-yellow-500/20 bg-yellow-500/5"
-                        }`}>
-                          {t.status}
-                        </span>
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-1 text-[10px] text-muted-foreground mono">
-                        <span>A: {t.promptAId?.substring(0, 8)}</span>
-                        <span>B: {t.promptBId?.substring(0, 8)}</span>
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
-            </div>
-          </div>
-
-          {/* A/B Test Detail / Execution */}
-          <div className="ref-card flex flex-col justify-between" style={{ padding: 20 }}>
-            {selectedTest ? (
-              <div className="space-y-5 h-full flex flex-col justify-between">
-                <div className="space-y-5">
-                  <div className="flex items-center justify-between border-b pb-4">
-                    <div>
-                      <h2 className="mono font-bold" style={{ fontSize: 16 }}>A/B Evaluation Run Summary</h2>
-                      <p className="mono text-muted-foreground" style={{ fontSize: 11 }}>Test ID: {selectedTest.testId}</p>
-                    </div>
-
-                    {selectedTest.status !== "RUNNING" && selectedTest.status !== "COMPLETED" && (
-                      <RefButton
-                        variant="primary"
-                        icon={executingTestId === selectedTest.testId ? Loader2 : Play}
-                        disabled={executingTestId === selectedTest.testId}
-                        onClick={() => handleRunAbTest(selectedTest.testId)}
-                      >
-                        {executingTestId === selectedTest.testId ? "Running..." : "Run Test"}
-                      </RefButton>
                     )}
-                  </div>
+                  </ListItem>
+                ))
+              )
+            ) : (
+              abTests.length === 0 ? (
+                <EmptyState icon={GitCompare} title="No trials yet" sub="Configure your first A/B test" />
+              ) : (
+                abTests.map((t) => (
+                  <ListItem key={t.testId} active={selectedTest?.testId === t.testId} onClick={() => setSelectedTest(t)}>
+                    <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", gap: 8 }}>
+                      <span style={{ fontSize: 12.5, fontWeight: 600, fontFamily: "var(--font-mono)" }}>
+                        {t.testId.substring(0, 12)}…
+                      </span>
+                      <StatusBadge status={t.status} />
+                    </div>
+                    <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 4, marginTop: 6 }}>
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "hsl(var(--muted-foreground))" }}>A: {t.promptAId?.substring(0, 8)}</span>
+                      <span style={{ fontSize: 10, fontFamily: "var(--font-mono)", color: "hsl(var(--muted-foreground))" }}>B: {t.promptBId?.substring(0, 8)}</span>
+                    </div>
+                  </ListItem>
+                ))
+              )
+            )}
+          </div>
+        </div>
 
-                  {/* Basic Metadata */}
-                  <div className="grid grid-cols-3 gap-4 border-b pb-4">
-                    <div>
-                      <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Dataset ID</span>
-                      <span className="mono text-[12px]">{selectedTest.datasetId || "Default Evaluator"}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Version A ID</span>
-                      <span className="mono text-[12px]">{selectedTest.promptAId}</span>
-                    </div>
-                    <div>
-                      <span className="text-muted-foreground block" style={{ fontSize: 10 }}>Version B ID</span>
-                      <span className="mono text-[12px]">{selectedTest.promptBId}</span>
-                    </div>
-                  </div>
+        {/* ── RIGHT detail panel ─────────────────────────────────────────── */}
+        <div className="ref-card" style={{ display: "flex", flexDirection: "column", padding: 0, overflow: "hidden" }}>
 
-                  {/* Running State */}
+          {activeTab === "registry" ? (
+            selectedVersion ? (
+              <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                {/* Detail header */}
+                <div style={{ padding: "16px 22px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "hsl(var(--card-elev)/0.5)" }}>
+                  <div>
+                    <h2 style={{ fontSize: 16, fontWeight: 700, letterSpacing: "-0.025em", margin: 0 }}>{selectedVersion.name}</h2>
+                    <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "hsl(var(--muted-foreground))", marginTop: 2, display: "block" }}>
+                      {selectedVersion.versionId}
+                    </span>
+                  </div>
+                  <div style={{ display: "flex", gap: 7, flexShrink: 0 }}>
+                    <button
+                      type="button" onClick={() => openPlayground(selectedVersion)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6, height: 32, padding: "0 13px",
+                        borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+                        background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-bright)))",
+                        border: "none", color: "white", cursor: "pointer",
+                        boxShadow: "0 2px 8px hsl(var(--primary)/0.3)",
+                        transition: "box-shadow 120ms ease, transform 80ms ease",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.boxShadow = "0 4px 16px hsl(var(--primary)/0.4)"; e.currentTarget.style.transform = "translateY(-1px)"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.boxShadow = "0 2px 8px hsl(var(--primary)/0.3)"; e.currentTarget.style.transform = "none"; }}
+                    >
+                      <ExternalLink size={12} />
+                      Playground
+                    </button>
+                    <button
+                      type="button" onClick={() => handleDeleteVersion(selectedVersion.versionId)}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6, height: 32, padding: "0 12px",
+                        borderRadius: 9, fontSize: 12.5, fontWeight: 500,
+                        background: "hsl(var(--muted)/0.5)", border: "none",
+                        color: "hsl(var(--muted-foreground))", cursor: "pointer",
+                        transition: "background 120ms ease, color 120ms ease",
+                      }}
+                      onMouseEnter={(e) => { e.currentTarget.style.background = "hsl(var(--error)/0.1)"; e.currentTarget.style.color = "hsl(var(--error))"; }}
+                      onMouseLeave={(e) => { e.currentTarget.style.background = "hsl(var(--muted)/0.5)"; e.currentTarget.style.color = "hsl(var(--muted-foreground))"; }}
+                    >
+                      <Trash2 size={12} />
+                      Delete
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metadata row */}
+                <div style={{ padding: "16px 22px 0", display: "flex", gap: 24 }}>
+                  {[
+                    { icon: Calendar, label: "Created", value: new Date(selectedVersion.createdAt).toLocaleDateString() },
+                    { icon: User,     label: "Author",  value: selectedVersion.createdBy || "system" },
+                    { icon: Zap,      label: "Model",   value: selectedVersion.model || "—" },
+                    { icon: Sliders,  label: "Temp",    value: selectedVersion.temperature != null ? String(selectedVersion.temperature) : "—" },
+                  ].map(({ icon: Icon, label, value }) => (
+                    <div key={label} style={{ display: "flex", alignItems: "center", gap: 8 }}>
+                      <div style={{ width: 28, height: 28, borderRadius: 8, background: "hsl(var(--muted)/0.4)", display: "grid", placeItems: "center", flexShrink: 0 }}>
+                        <Icon size={13} style={{ color: "hsl(var(--muted-foreground))" }} />
+                      </div>
+                      <div>
+                        <div style={{ fontSize: 9.5, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>{label}</div>
+                        <div style={{ fontSize: 12, fontFamily: "var(--font-mono)", fontWeight: 500, marginTop: 1 }}>{value}</div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Prompt body */}
+                <div style={{ flex: 1, padding: "16px 22px 0", display: "flex", flexDirection: "column", minHeight: 0 }}>
+                  <SectionLabel>Prompt template body</SectionLabel>
+                  <div style={{
+                    flex: 1, fontFamily: "var(--font-mono)", fontSize: 12.5, lineHeight: 1.65,
+                    color: "hsl(var(--foreground))", background: "hsl(var(--card-elev)/0.6)",
+                    border: "1px solid hsl(var(--border)/0.15)", borderRadius: 12,
+                    padding: "14px 16px", overflowY: "auto", whiteSpace: "pre-wrap",
+                    wordBreak: "break-word", minHeight: 160, maxHeight: 280,
+                  }}>
+                    {selectedVersion.content}
+                  </div>
+                </div>
+
+                {/* Tags */}
+                <div style={{ padding: "16px 22px 20px" }}>
+                  <SectionLabel>Tags</SectionLabel>
+                  <div style={{ display: "flex", flexWrap: "wrap", gap: 6, alignItems: "center" }}>
+                    {(selectedVersion.tags || []).map((t) => (
+                      <span key={t} style={{
+                        display: "inline-flex", alignItems: "center", gap: 5,
+                        padding: "3px 9px 3px 8px", borderRadius: 999, fontSize: 11,
+                        fontFamily: "var(--font-mono)", fontWeight: 500,
+                        background: "hsl(var(--primary)/0.08)", color: "hsl(var(--primary-bright))",
+                        border: "1px solid hsl(var(--primary)/0.12)",
+                      }}>
+                        <Tag size={9} />
+                        {t}
+                        <button
+                          type="button" onClick={() => handleRemoveTag(t)}
+                          style={{ background: "none", border: "none", cursor: "pointer", padding: 0, marginLeft: 2, color: "hsl(var(--primary-bright)/0.6)", display: "flex", alignItems: "center" }}
+                        >
+                          <X size={10} />
+                        </button>
+                      </span>
+                    ))}
+                    <form onSubmit={handleAddTag} style={{ display: "flex", gap: 6 }}>
+                      <input
+                        type="text" placeholder="Add tag…" value={newTag}
+                        onChange={(e) => setNewTag(e.target.value)}
+                        style={{
+                          height: 28, padding: "0 10px", fontSize: 11.5,
+                          fontFamily: "var(--font-mono)", background: "hsl(var(--card-elev))",
+                          border: "1px solid hsl(var(--border)/0.25)", borderRadius: 999,
+                          color: "hsl(var(--foreground))", outline: "none", width: 110,
+                        }}
+                      />
+                      <button type="submit" style={{
+                        height: 28, padding: "0 11px", borderRadius: 999, fontSize: 11.5,
+                        background: "hsl(var(--primary)/0.1)", color: "hsl(var(--primary-bright))",
+                        border: "1px solid hsl(var(--primary)/0.15)", cursor: "pointer", fontWeight: 600,
+                      }}>+</button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <EmptyState icon={FolderOpen} title="No template selected" sub="Pick a template from the left or create a new one" />
+            )
+          ) : (
+            /* ── A/B Test detail ──────────────────────────────────────────── */
+            selectedTest ? (
+              <div style={{ display: "flex", flexDirection: "column", height: "100%" }}>
+                {/* Test header */}
+                <div style={{ padding: "16px 22px 14px", display: "flex", alignItems: "flex-start", justifyContent: "space-between", gap: 12, background: "hsl(var(--card-elev)/0.5)" }}>
+                  <div>
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <h2 style={{ fontSize: 15, fontWeight: 700, letterSpacing: "-0.02em", margin: 0 }}>A/B Evaluation</h2>
+                      <StatusBadge status={selectedTest.status} />
+                    </div>
+                    <span style={{ fontSize: 11, fontFamily: "var(--font-mono)", color: "hsl(var(--muted-foreground))", marginTop: 2, display: "block" }}>
+                      {selectedTest.testId}
+                    </span>
+                  </div>
+                  {selectedTest.status !== "RUNNING" && selectedTest.status !== "COMPLETED" && (
+                    <button
+                      type="button" onClick={() => handleRunAbTest(selectedTest.testId)}
+                      disabled={executingTestId === selectedTest.testId}
+                      style={{
+                        display: "flex", alignItems: "center", gap: 6, height: 32, padding: "0 14px",
+                        borderRadius: 9, fontSize: 12.5, fontWeight: 600,
+                        background: "linear-gradient(135deg, hsl(var(--primary)), hsl(var(--primary-bright)))",
+                        border: "none", color: "white", cursor: "pointer",
+                        boxShadow: "0 2px 8px hsl(var(--primary)/0.3)",
+                        opacity: executingTestId === selectedTest.testId ? 0.6 : 1,
+                      }}
+                    >
+                      {executingTestId === selectedTest.testId ? <Loader2 size={12} className="animate-spin" /> : <Play size={12} style={{ fill: "white" }} />}
+                      {executingTestId === selectedTest.testId ? "Running…" : "Run Test"}
+                    </button>
+                  )}
+                </div>
+
+                {/* Dataset + variant meta */}
+                <div style={{ padding: "16px 22px 0", display: "flex", gap: 24 }}>
+                  {[
+                    { label: "Dataset",   value: selectedTest.datasetId?.substring(0, 12) || "Default" },
+                    { label: "Variant A", value: selectedTest.promptAId?.substring(0, 12) || "—" },
+                    { label: "Variant B", value: selectedTest.promptBId?.substring(0, 12) || "—" },
+                  ].map(({ label, value }) => (
+                    <div key={label}>
+                      <div style={{ fontSize: 9.5, textTransform: "uppercase" as const, letterSpacing: "0.08em", color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", marginBottom: 3 }}>{label}</div>
+                      <div style={{ fontSize: 12.5, fontFamily: "var(--font-mono)", fontWeight: 500 }}>{value}…</div>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Status body */}
+                <div style={{ flex: 1, padding: "16px 22px 20px", display: "flex", flexDirection: "column", gap: 14, minHeight: 0 }}>
+
                   {selectedTest.status === "RUNNING" && (
-                    <div className="flex flex-col items-center justify-center p-12 border border-blue-500/20 bg-blue-500/5 rounded-lg text-blue-500 space-y-3">
-                      <Loader2 className="animate-spin shrink-0" size={32} />
-                      <span className="mono text-center" style={{ fontSize: 12 }}>Executing parallel model calls and statistical t-test scoring...</span>
-                    </div>
-                  )}
-
-                  {/* Completed / Stats View */}
-                  {selectedTest.status === "COMPLETED" && (
-                    <div className="space-y-5">
-                      <div className="flex items-center gap-3 border border-green-500/20 bg-green-500/5 p-4 rounded-lg">
-                        <CheckCircle className="text-green-500 shrink-0" size={24} />
-                        <div>
-                          <h3 className="mono font-bold text-green-500" style={{ fontSize: 14 }}>Welch's T-Test Evaluation Complete</h3>
-                          <p className="text-muted-foreground" style={{ fontSize: 11 }}>High confidence statistical win margin evaluated successfully.</p>
-                        </div>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 14, background: "hsl(var(--llm)/0.08)", display: "grid", placeItems: "center", border: "1px solid hsl(var(--llm)/0.12)" }}>
+                        <Loader2 size={20} className="animate-spin" style={{ color: "hsl(var(--llm))" }} />
                       </div>
-
-                      {/* Winner Display */}
-                      <div className="grid grid-cols-2 gap-4">
-                        <div className="ref-card p-4 flex flex-col justify-between" style={{ background: "hsl(var(--muted)/0.15)" }}>
-                          <div>
-                            <span className="text-muted-foreground block text-[10px] mono">DECIDED WINNER</span>
-                            <span className="mono font-bold text-lg block flex items-center gap-2 mt-1">
-                              <Award className="text-yellow-500 shrink-0" size={18} />
-                              {selectedTest.winnerId ? `Version ${selectedTest.winnerId.substring(0, 8)}` : "No Significant Winner"}
-                            </span>
-                          </div>
-                        </div>
-                        <div className="ref-card p-4 flex flex-col justify-between" style={{ background: "hsl(var(--muted)/0.15)" }}>
-                          <div>
-                            <span className="text-muted-foreground block text-[10px] mono">P-VALUE (Welch's T-Test)</span>
-                            <span className={`mono font-bold text-lg block mt-1 ${selectedTest.pValue !== null && selectedTest.pValue < 0.05 ? "text-green-500" : "text-yellow-500"}`}>
-                              {selectedTest.pValue !== null ? selectedTest.pValue.toFixed(5) : "—"}
-                            </span>
-                          </div>
-                        </div>
-                      </div>
-
-                      {/* Additional Metrics */}
-                      <div className="space-y-2">
-                        <span className="mono text-[12px]">Evaluation Metrics</span>
-                        <div className="border rounded-md overflow-hidden">
-                          <table className="mono w-full text-left" style={{ fontSize: 11 }}>
-                            <thead className="bg-muted/40 border-b">
-                              <tr>
-                                <th className="p-2">Prompt Variant</th>
-                                <th className="p-2">Average Score</th>
-                                <th className="p-2">Variance</th>
-                                <th className="p-2">Success Rate</th>
-                              </tr>
-                            </thead>
-                            <tbody>
-                              <tr className="border-b">
-                                <td className="p-2 font-semibold">Variant A</td>
-                                <td className="p-2">{(selectedTest.summaryMetrics?.avgScoreA ?? 0.88).toFixed(3)}</td>
-                                <td className="p-2">{(selectedTest.summaryMetrics?.varianceA ?? 0.012).toFixed(4)}</td>
-                                <td className="p-2 text-green-500">{(selectedTest.summaryMetrics?.successRateA ?? 94.0).toFixed(1)}%</td>
-                              </tr>
-                              <tr>
-                                <td className="p-2 font-semibold">Variant B</td>
-                                <td className="p-2">{(selectedTest.summaryMetrics?.avgScoreB ?? 0.94).toFixed(3)}</td>
-                                <td className="p-2">{(selectedTest.summaryMetrics?.varianceB ?? 0.008).toFixed(4)}</td>
-                                <td className="p-2 text-green-500">{(selectedTest.summaryMetrics?.successRateB ?? 98.2).toFixed(1)}%</td>
-                              </tr>
-                            </tbody>
-                          </table>
-                        </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "hsl(var(--foreground-dim))" }}>Running evaluation…</div>
+                        <div style={{ fontSize: 11.5, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", marginTop: 3 }}>Parallel model calls + Welch's t-test scoring</div>
                       </div>
                     </div>
                   )}
 
-                  {/* Stale / Staged View */}
                   {selectedTest.status === "PENDING" && (
-                    <div className="flex flex-col items-center justify-center p-12 border border-dashed rounded-lg text-muted-foreground space-y-2">
-                      <GitCompare size={36} className="stroke-1 mb-1 shrink-0" />
-                      <span className="mono" style={{ fontSize: 12 }}>Statistical A/B test configured and ready for model execution.</span>
-                      <p style={{ fontSize: 11 }}>Will invoke datasets on variants and evaluate variance values.</p>
+                    <div style={{ flex: 1, display: "flex", flexDirection: "column", alignItems: "center", justifyContent: "center", gap: 14 }}>
+                      <div style={{ width: 44, height: 44, borderRadius: 14, background: "hsl(var(--warning)/0.08)", display: "grid", placeItems: "center", border: "1px solid hsl(var(--warning)/0.12)" }}>
+                        <GitCompare size={20} style={{ color: "hsl(var(--warning))" }} />
+                      </div>
+                      <div style={{ textAlign: "center" }}>
+                        <div style={{ fontSize: 13, fontWeight: 500, color: "hsl(var(--foreground-dim))" }}>Ready to run</div>
+                        <div style={{ fontSize: 11.5, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)", marginTop: 3 }}>Hit Run Test to begin statistical evaluation</div>
+                      </div>
                     </div>
+                  )}
+
+                  {selectedTest.status === "COMPLETED" && (
+                    <>
+                      {/* Winner banner */}
+                      <div style={{
+                        borderRadius: 14, padding: "16px 18px",
+                        background: "linear-gradient(135deg, hsl(var(--success)/0.07), hsl(var(--success)/0.03))",
+                        border: "1px solid hsl(var(--success)/0.15)",
+                        display: "flex", alignItems: "center", gap: 14,
+                      }}>
+                        <div style={{ width: 40, height: 40, borderRadius: 12, background: "hsl(var(--success)/0.12)", display: "grid", placeItems: "center", flexShrink: 0 }}>
+                          <CheckCircle size={20} style={{ color: "hsl(var(--success))" }} />
+                        </div>
+                        <div>
+                          <div style={{ fontSize: 13, fontWeight: 600, color: "hsl(var(--success))" }}>
+                            Welch's T-Test Complete
+                          </div>
+                          <div style={{ fontSize: 11.5, color: "hsl(var(--muted-foreground))", marginTop: 2 }}>
+                            High-confidence statistical evaluation completed
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Stats tiles */}
+                      <div style={{ display: "flex", gap: 10 }}>
+                        <StatTile
+                          label="Winner"
+                          value={selectedTest.winnerId ? `v${selectedTest.winnerId.substring(0, 6)}` : "None"}
+                          color="var(--warning)"
+                        />
+                        <StatTile
+                          label="p-value"
+                          value={selectedTest.pValue != null ? selectedTest.pValue.toFixed(4) : "—"}
+                          color={selectedTest.pValue != null && selectedTest.pValue < 0.05 ? "var(--success)" : "var(--warning)"}
+                        />
+                      </div>
+
+                      {/* Variant comparison */}
+                      <div>
+                        <SectionLabel>Variant comparison</SectionLabel>
+                        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+                          {(["A", "B"] as const).map((variant) => {
+                            const score   = variant === "A" ? (selectedTest.summaryMetrics?.avgScoreA    ?? 0.88) : (selectedTest.summaryMetrics?.avgScoreB    ?? 0.94);
+                            const variance= variant === "A" ? (selectedTest.summaryMetrics?.varianceA    ?? 0.012): (selectedTest.summaryMetrics?.varianceB    ?? 0.008);
+                            const rate    = variant === "A" ? (selectedTest.summaryMetrics?.successRateA ?? 94.0) : (selectedTest.summaryMetrics?.successRateB ?? 98.2);
+                            const isWinner= selectedTest.winnerId === (variant === "A" ? selectedTest.promptAId : selectedTest.promptBId);
+                            return (
+                              <div key={variant} style={{
+                                borderRadius: 12, padding: "14px 16px",
+                                background: isWinner ? "hsl(var(--warning)/0.06)" : "hsl(var(--card-elev)/0.6)",
+                                border: `1px solid ${isWinner ? "hsl(var(--warning)/0.15)" : "hsl(var(--border)/0.15)"}`,
+                              }}>
+                                <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 12 }}>
+                                  <span style={{ fontSize: 12, fontWeight: 600, fontFamily: "var(--font-mono)" }}>Variant {variant}</span>
+                                  {isWinner && <Award size={14} style={{ color: "hsl(var(--warning))" }} />}
+                                </div>
+                                {[
+                                  { label: "Avg score",    value: score.toFixed(3),    color: "var(--success)" },
+                                  { label: "Variance",     value: variance.toFixed(4), color: "var(--muted-foreground)" },
+                                  { label: "Success rate", value: `${rate.toFixed(1)}%`, color: "var(--success)" },
+                                ].map(({ label, value, color }) => (
+                                  <div key={label} style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
+                                    <span style={{ fontSize: 10.5, color: "hsl(var(--muted-foreground))", fontFamily: "var(--font-mono)" }}>{label}</span>
+                                    <span style={{ fontSize: 12.5, fontFamily: "var(--font-mono)", fontWeight: 600, color: `hsl(${color})` }}>{value}</span>
+                                  </div>
+                                ))}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    </>
                   )}
                 </div>
               </div>
             ) : (
-              <div className="flex flex-col items-center justify-center h-full text-muted-foreground py-20">
-                <GitCompare size={48} className="stroke-1 mb-2 shrink-0" />
-                <p style={{ fontSize: 13 }}>Select or configure an A/B trial to begin statistical comparisons.</p>
-              </div>
-            )}
-          </div>
+              <EmptyState icon={GitCompare} title="No trial selected" sub="Select or configure an A/B trial to begin" />
+            )
+          )}
         </div>
-      )}
+      </div>
 
-      {/* ── Create Version Modal Drawer ── */}
+      {/* ── Create Version Modal ───────────────────────────────────────────── */}
       {showCreateModal && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="ref-card w-full max-w-lg p-6 space-y-4" style={{ background: "hsl(var(--card))" }}>
-            <h3 className="mono font-bold text-lg">Create New Prompt Template</h3>
-            <form onSubmit={handleCreateVersion} className="space-y-4 text-xs mono">
-              <div className="space-y-1">
-                <label className="block text-muted-foreground">Template Name</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="e.g. system_router_prompt"
-                  className="w-full border p-2 rounded bg-transparent"
-                  value={newVersion.name}
-                  onChange={(e) => setNewVersion({ ...newVersion, name: e.target.value })}
-                />
-              </div>
+        <Modal title="New Prompt Template" onClose={() => setShowCreateModal(false)}>
+          <form onSubmit={handleCreateVersion} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <FieldInput label="Template name" value={newVersion.name} onChange={(v) => setNewVersion({ ...newVersion, name: v })} placeholder="e.g. support_router_v2" required />
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Target Model</label>
-                  <select
-                    className="w-full border p-2 rounded bg-background"
-                    value={newVersion.model}
-                    onChange={(e) => setNewVersion({ ...newVersion, model: e.target.value })}
-                  >
-                    {modelOptions.map((opt) => (
-                      <option key={opt} value={opt}>{opt}</option>
-                    ))}
-                    <option value="custom">Custom Model ID...</option>
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Temperature</label>
-                  <input
-                    type="number"
-                    step="0.1"
-                    min="0"
-                    max="2"
-                    className="w-full border p-2 rounded bg-transparent"
-                    value={newVersion.temperature}
-                    onChange={(e) => setNewVersion({ ...newVersion, temperature: parseFloat(e.target.value) || 0.7 })}
-                  />
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Max Tokens</label>
-                  <input
-                    type="number"
-                    className="w-full border p-2 rounded bg-transparent"
-                    value={newVersion.maxTokens}
-                    onChange={(e) => setNewVersion({ ...newVersion, maxTokens: parseInt(e.target.value) || 2048 })}
-                  />
-                </div>
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+              <FieldSelect label="Model" value={newVersion.model} onChange={(v) => setNewVersion({ ...newVersion, model: v })}>
+                {modelOptions.map((opt) => <option key={opt} value={opt}>{opt}</option>)}
+                <option value="custom">Custom…</option>
+              </FieldSelect>
+              <FieldInput label="Temperature" type="number" value={newVersion.temperature} onChange={(v) => setNewVersion({ ...newVersion, temperature: parseFloat(v) || 0.7 })} />
+              <FieldInput label="Max tokens" type="number" value={newVersion.maxTokens} onChange={(v) => setNewVersion({ ...newVersion, maxTokens: parseInt(v) || 2048 })} />
+            </div>
 
-              {newVersion.model === "custom" && (
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Custom Model Identifier</label>
-                  <input
-                    type="text"
-                    required
-                    placeholder="e.g. llama-3.1-8b"
-                    className="w-full border p-2 rounded bg-transparent"
-                    value={customModel}
-                    onChange={(e) => setCustomModel(e.target.value)}
-                  />
-                </div>
-              )}
+            {newVersion.model === "custom" && (
+              <FieldInput label="Custom model ID" value={customModel} onChange={setCustomModel} placeholder="e.g. meta-llama/llama-3.1-70b" required />
+            )}
 
-              <div className="space-y-1">
-                <label className="block text-muted-foreground">Prompt Content (Supports variables using double curly braces, e.g. {"{{user_query}}"})</label>
-                <textarea
-                  required
-                  rows={8}
-                  placeholder="You are an expert agent system..."
-                  className="w-full border p-2 rounded bg-transparent font-mono"
-                  value={newVersion.content}
-                  onChange={(e) => setNewVersion({ ...newVersion, content: e.target.value })}
-                />
-              </div>
+            <FieldInput
+              label="Prompt content — use {{variable}} for template variables"
+              value={newVersion.content}
+              onChange={(v) => setNewVersion({ ...newVersion, content: v })}
+              placeholder={"You are an expert agent.\n\nHandle this request: {{user_query}}"}
+              rows={7} required
+            />
 
-              <div className="flex gap-2 justify-end pt-2">
-                <RefButton variant="outline" type="button" onClick={() => setShowCreateModal(false)}>Cancel</RefButton>
-                <RefButton variant="primary" type="submit">Create</RefButton>
-              </div>
-            </form>
-          </div>
-        </div>
+            <ModalFooter onCancel={() => setShowCreateModal(false)} submitLabel="Create template" />
+          </form>
+        </Modal>
       )}
 
-      {/* ── Create A/B Test Modal Drawer ── */}
+      {/* ── Create A/B Test Modal ─────────────────────────────────────────── */}
       {showAbModal && (
-        <div className="fixed inset-0 bg-background/80 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="ref-card w-full max-w-lg p-6 space-y-4" style={{ background: "hsl(var(--card))" }}>
-            <h3 className="mono font-bold text-lg">New Prompt A/B Test</h3>
-            <form onSubmit={handleCreateAbTest} className="space-y-4 text-xs mono">
-              <div className="space-y-1">
-                <label className="block text-muted-foreground">Target Evaluation Dataset</label>
-                <select
-                  required
-                  className="w-full border p-2 rounded bg-background"
-                  value={newAbTest.datasetId}
-                  onChange={(e) => setNewAbTest({ ...newAbTest, datasetId: e.target.value })}
-                >
-                  <option value="">Select a Dataset...</option>
-                  {datasets.map((d) => (
-                    <option key={d.datasetId} value={d.datasetId}>{d.name} ({d.examples ?? 0} items)</option>
-                  ))}
-                </select>
-              </div>
+        <Modal title="New A/B Test" onClose={() => setShowAbModal(false)}>
+          <form onSubmit={handleCreateAbTest} style={{ display: "flex", flexDirection: "column", gap: 14 }}>
+            <FieldSelect label="Evaluation dataset" value={newAbTest.datasetId} onChange={(v) => setNewAbTest({ ...newAbTest, datasetId: v })}>
+              <option value="">Select a dataset…</option>
+              {datasets.map((d) => <option key={d.datasetId} value={d.datasetId}>{d.name} ({d.examples ?? 0} items)</option>)}
+            </FieldSelect>
 
-              <div className="grid grid-cols-2 gap-4">
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Select Variant A</label>
-                  <select
-                    required
-                    className="w-full border p-2 rounded bg-background"
-                    value={newAbTest.promptAId}
-                    onChange={(e) => setNewAbTest({ ...newAbTest, promptAId: e.target.value })}
-                  >
-                    <option value="">Select Variant A...</option>
-                    {versions.map((v) => (
-                      <option key={v.versionId} value={v.versionId}>{v.name} ({v.versionId.substring(0, 8)})</option>
-                    ))}
-                  </select>
-                </div>
-                <div className="space-y-1">
-                  <label className="block text-muted-foreground">Select Variant B</label>
-                  <select
-                    required
-                    className="w-full border p-2 rounded bg-background"
-                    value={newAbTest.promptBId}
-                    onChange={(e) => setNewAbTest({ ...newAbTest, promptBId: e.target.value })}
-                  >
-                    <option value="">Select Variant B...</option>
-                    {versions.map((v) => (
-                      <option key={v.versionId} value={v.versionId}>{v.name} ({v.versionId.substring(0, 8)})</option>
-                    ))}
-                  </select>
-                </div>
-              </div>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 10 }}>
+              <FieldSelect label="Variant A" value={newAbTest.promptAId} onChange={(v) => setNewAbTest({ ...newAbTest, promptAId: v })}>
+                <option value="">Select variant A…</option>
+                {versions.map((v) => <option key={v.versionId} value={v.versionId}>{v.name}</option>)}
+              </FieldSelect>
+              <FieldSelect label="Variant B" value={newAbTest.promptBId} onChange={(v) => setNewAbTest({ ...newAbTest, promptBId: v })}>
+                <option value="">Select variant B…</option>
+                {versions.map((v) => <option key={v.versionId} value={v.versionId}>{v.name}</option>)}
+              </FieldSelect>
+            </div>
 
-              <div className="flex gap-2 justify-end pt-2">
-                <RefButton variant="outline" type="button" onClick={() => setShowAbModal(false)}>Cancel</RefButton>
-                <RefButton variant="primary" type="submit">Configure</RefButton>
-              </div>
-            </form>
-          </div>
-        </div>
+            <ModalFooter onCancel={() => setShowAbModal(false)} submitLabel="Configure test" />
+          </form>
+        </Modal>
       )}
     </div>
   );

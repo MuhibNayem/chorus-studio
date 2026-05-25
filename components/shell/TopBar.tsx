@@ -122,10 +122,10 @@ export default function TopBar({ onOpenCmd }: { onOpenCmd: () => void }) {
                   className="absolute right-0 top-[calc(100%+6px)] z-50 min-w-[200px] rounded-lg border shadow-lg"
                   style={{
                     background: "hsl(var(--card))",
-                    borderColor: "hsl(var(--border))",
+                    borderColor: "hsl(var(--border)/0.4)",
                   }}
                 >
-                  <div className="p-3 border-b" style={{ borderColor: "hsl(var(--border))" }}>
+                  <div className="p-3 border-b" style={{ borderColor: "hsl(var(--border)/0.3)" }}>
                     <div className="flex items-center gap-2">
                       <div
                         className="flex items-center justify-center rounded-full text-white font-bold text-[11px]"

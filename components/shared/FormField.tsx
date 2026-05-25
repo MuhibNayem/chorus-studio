@@ -13,12 +13,20 @@ export default function FormField({
 }) {
   return (
     <div>
-      <div style={{ fontSize: 10, textTransform: "uppercase", letterSpacing: "0.08em", fontWeight: 600, marginBottom: 5 }}>
+      <div style={{
+        fontSize: 11,
+        textTransform: "uppercase",
+        letterSpacing: "0.04em",
+        fontWeight: 600,
+        fontFamily: "var(--font-mono)",
+        color: "hsl(var(--muted-foreground))",
+        marginBottom: 5,
+      }}>
         {label}
       </div>
       {children}
       {hint && (
-        <div className="mute" style={{ fontSize: 11, marginTop: 4 }}>
+        <div style={{ fontSize: 10, color: "hsl(var(--muted-foreground) / 0.6)", marginTop: 4 }}>
           {hint}
         </div>
       )}

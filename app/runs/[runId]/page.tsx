@@ -22,6 +22,7 @@ import {
   Activity, Sparkles, Wrench, RefreshCw, Plus, Eye, X,
 } from "lucide-react";
 import type { Run, Span, LlmCall, ToolCall, ProvenanceEntry, Dataset } from "@/types";
+import { Select } from "@/components/ui/select";
 
 function StatusBadge({ status }: { status: Run["status"] }) {
   const map: Record<string, { v: string; label: string }> = {
@@ -303,17 +304,11 @@ export default function RunDetailPage() {
               ) : (
                 <div>
                   <label className="text-[10px] font-medium mute block mb-1">TARGET DATASET</label>
-                  <select
+                  <Select
                     value={selectedDatasetId}
-                    onChange={(e) => setSelectedDatasetId(e.target.value)}
-                    className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
-                  >
-                    {datasets.map((d) => (
-                      <option key={d.datasetId} value={d.datasetId}>
-                        {d.name} ({d.datasetId})
-                      </option>
-                    ))}
-                  </select>
+                    onChange={(v) => setSelectedDatasetId(v as string)}
+                    options={datasets.map((d) => ({ value: d.datasetId, label: `${d.name} (${d.datasetId})` }))}
+                  />
                 </div>
               )}
             </div>

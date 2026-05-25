@@ -36,13 +36,13 @@ const platformItems = [
   { href: "/agents", label: "Agents", icon: Cpu, badge: "5" },
   { href: "/models", label: "Models", icon: Server },
   { href: "/alerts", label: "Alerts", icon: Bell, badge: "3" },
-  { href: "/settings", label: "Settings", icon: Settings },
+  { href: "/settings", label: "Settings", icon: Settings, exact: true },
   { href: "/settings/integrations", label: "Integrations", icon: FileCode },
-  { href: "/settings/enterprise", label: "Enterprise", icon: Shield },
+  { href: "/settings/enterprise", label: "Governance & Compliance", icon: Shield },
 ];
 
-function isActive(pathname: string, href: string) {
-  if (href === "/") return pathname === "/";
+function isActive(pathname: string, href: string, exact = false) {
+  if (href === "/" || exact) return pathname === href;
   return pathname === href || pathname.startsWith(href + "/");
 }
 
@@ -114,7 +114,7 @@ export default function Sidebar() {
       <div className="side-section">Platform</div>
       <nav className="side-nav">
         {platformItems.map((item) => {
-          const active = isActive(pathname, item.href);
+          const active = isActive(pathname, item.href, item.exact);
           const Icon = item.icon;
           return (
             <Link

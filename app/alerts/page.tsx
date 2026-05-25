@@ -8,6 +8,7 @@ import { RefCard } from "@/components/primitives/RefCard";
 import { api } from "@/lib/api";
 import type { AlertEvent } from "@/types";
 import { Plus, AlertCircle, CheckCircle2, X } from "lucide-react";
+import { Select } from "@/components/ui/select";
 
 export default function AlertsPage() {
   const [alerts, setAlerts] = useState<AlertEvent[]>([]);
@@ -180,15 +181,15 @@ export default function AlertsPage() {
                 </div>
                 <div>
                   <label className="text-[10px] font-medium mute block mb-1">SEVERITY</label>
-                  <select
+                  <Select
                     value={severity}
-                    onChange={(e) => setSeverity(e.target.value as any)}
-                    className="w-full bg-muted/50 border rounded px-3 py-1.5 text-xs text-foreground focus:outline-none focus:ring-1 focus:ring-primary focus:bg-card"
-                  >
-                    <option value="info">Info</option>
-                    <option value="warning">Warning</option>
-                    <option value="error">Error</option>
-                  </select>
+                    onChange={(v) => setSeverity(v as any)}
+                    options={[
+                      { value: "info", label: "Info" },
+                      { value: "warning", label: "Warning" },
+                      { value: "error", label: "Error" },
+                    ]}
+                  />
                 </div>
               </div>
               <div>

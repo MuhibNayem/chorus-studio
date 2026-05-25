@@ -9,6 +9,7 @@ import RefBadge from "@/components/primitives/RefBadge";
 import CodeBlock from "@/components/shared/CodeBlock";
 import FormField from "@/components/shared/FormField";
 import { ArrowLeft, ArrowRight, Check, Copy, RefreshCw, PlayCircle, HelpCircle, Server, X as XIcon } from "lucide-react";
+import { Select } from "@/components/ui/select";
 
 const FRAMEWORKS = [
   { id: "chorus", name: "Chorus Engine", sub: "chorus-engine4j", snippet: "chorus" },
@@ -138,12 +139,16 @@ export default function AgentRegisterWizard() {
               </FormField>
               <div className="grid grid-cols-2 gap-4">
                 <FormField label="Owner team">
-                  <select className="ref-input" value={form.owner} onChange={(e) => set("owner", e.target.value)}>
-                    <option value="platform">platform</option>
-                    <option value="research">research</option>
-                    <option value="safety">safety</option>
-                    <option value="growth">growth</option>
-                  </select>
+                  <Select
+                    value={form.owner}
+                    onChange={(v) => set("owner", v as string)}
+                    options={[
+                      { value: "platform", label: "platform" },
+                      { value: "research", label: "research" },
+                      { value: "safety", label: "safety" },
+                      { value: "growth", label: "growth" },
+                    ]}
+                  />
                 </FormField>
                 <FormField label="Sampling rate" hint="% of runs to ingest.">
                   <div className="flex items-center gap-2">
@@ -158,7 +163,7 @@ export default function AgentRegisterWizard() {
               </div>
               <FormField label="Tags" hint="Press enter to add.">
                 <div className="flex flex-wrap gap-1.5" style={{
-                  padding: 6, border: "1px solid hsl(var(--border))",
+                  padding: 6, border: "1px solid hsl(var(--border)/0.35)",
                   borderRadius: "0.375rem", background: "hsl(var(--card))", minHeight: 36,
                 }}>
                   {form.tags.map((t) => (
@@ -314,7 +319,7 @@ export default function AgentRegisterWizard() {
               <RefButton size="sm" variant="outline" icon={Copy}>Copy</RefButton>
             </div>
             <div style={{ padding: 0 }}>
-              <CodeBlock style={{ maxHeight: 360, borderRadius: 0, border: 0, borderTop: "1px solid hsl(var(--border))", margin: 0 }}>
+              <CodeBlock style={{ maxHeight: 360, borderRadius: 0, border: 0, borderTop: "1px solid hsl(var(--border)/0.3)", margin: 0 }}>
                 {code}
               </CodeBlock>
             </div>

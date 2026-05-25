@@ -25,6 +25,11 @@ import type {
   PromptAbTest,
   PlaygroundResult,
   RagMetrics,
+  RagTrendPoint,
+  RagCluster,
+  RagDriftSnapshot,
+  RagQueryEntry,
+  RagQueryDetail,
   AuditLogEntry,
 } from "@/types";
 
@@ -295,7 +300,10 @@ export const api = {
 
   /* ── Evaluators ─────────────────────────────────────────── */
 
-  listEvaluators: () => fetchJson<Evaluator[]>("/api/v1/evaluators"),
+  listEvaluators: () =>
+    fetchJson<{ evaluator: Evaluator; score24h: number }[]>("/api/v1/evaluators").then((list) =>
+      list.map((item) => ({ ...item.evaluator, score24h: item.score24h }))
+    ),
 
   createEvaluator: (body: {
     name: string;
@@ -425,10 +433,32 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
-  /* ── RAG Metrics ────────────────────────────────────────── */
+  /* ── RAG Analytics ──────────────────────────────────────── */
 
-  getRagMetrics: (window?: string) =>
-    fetchJson<RagMetrics>(`/api/v1/rag/metrics${qs({ window })}`),
+  getRagMetrics: (window?: string, collection?: string) =>
+    fetchJson<RagMetrics>(`/api/v1/rag/metrics${qs({ window, collection })}`),
+
+  getRagTrend: (window?: string, granularity?: string, collection?: string) =>
+    fetchJson<RagTrendPoint[]>(`/api/v1/rag/trend${qs({ window, granularity, collection })}`),
+
+  listRagQueries: (params?: { window?: string; collection?: string; page?: number; size?: number }) =>
+    fetchJson<{ items: RagQueryEntry[]; total: number; page: number; size: number }>(
+      `/api/v1/rag/queries${qs(params)}`
+    ),
+
+  getRagQuery: (queryId: string) =>
+    fetchJson<RagQueryDetail>(`/api/v1/rag/queries/${queryId}`),
+
+  getRagCollections: (window?: string) =>
+    fetchJson<{ collection: string; query_count: number; avg_latency_ms: number; avg_precision: number; avg_faithfulness: number }[]>(
+      `/api/v1/rag/collections${qs({ window })}`
+    ),
+
+  getRagClusters: (window?: string, collection?: string) =>
+    fetchJson<RagCluster[]>(`/api/v1/rag/clusters${qs({ window, collection })}`),
+
+  getRagDrift: (window?: string, collection?: string) =>
+    fetchJson<RagDriftSnapshot[]>(`/api/v1/rag/drift${qs({ window, collection })}`),
 
   /* ── Audit Logs ─────────────────────────────────────────── */
 
