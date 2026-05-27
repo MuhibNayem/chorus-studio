@@ -7,6 +7,7 @@ import {
   Position,
   Controls,
   Background,
+  MarkerType,
   type NodeProps,
   type Node,
   type Edge,
@@ -14,19 +15,35 @@ import {
 import "@xyflow/react/dist/style.css";
 import dagre from "dagre";
 import { RefCard, CardHeader } from "@/components/primitives/RefCard";
-import RefBadge from "@/components/primitives/RefBadge";
-import { X } from "lucide-react";
+import {
+  X,
+  Database,
+  Cpu,
+  Wrench,
+  ShieldCheck,
+  HelpCircle,
+  Clock,
+  Maximize2,
+  Sparkles,
+} from "lucide-react";
 import type { ProvenanceEntry } from "@/types";
 
-const NODE_WIDTH = 180;
-const NODE_HEIGHT = 64;
-const LEVEL_SEP = 80;
+/* ─── Layout Constants ───────────────────────────────────── */
+const NODE_WIDTH = 210;
+const NODE_HEIGHT = 60;
+const LEVEL_SEP = 100;
 const NODE_SEP = 50;
-const MIN_HEIGHT = 320;
+const CANVAS_HEIGHT = 520;
 
-type NodeData = { label: string; meta: string; badgeType: string; timestamp: string };
+/* ─── Type Helpers ───────────────────────────────────────── */
+type NodeCategory = "llm" | "tool" | "rag" | "guardrail" | "default";
 
-function getType(decisionType: string): string {
+type NodeData = {
+  entry: ProvenanceEntry;
+  category: NodeCategory;
+};
+
+function classifyNode(decisionType: string): NodeCategory {
   const dt = decisionType.toLowerCase();
   if (dt.includes("llm") || dt.includes("chat") || dt.includes("plan")) return "llm";
   if (dt.includes("tool")) return "tool";
@@ -35,26 +52,151 @@ function getType(decisionType: string): string {
   return "default";
 }
 
-function ProvenanceNode({ data }: NodeProps & { data: NodeData }) {
+/* ─── Category Theme Map ─────────────────────────────────── */
+const THEMES: Record<
+  NodeCategory,
+  {
+    label: string;
+    icon: typeof Cpu;
+    gradient: string;
+    border: string;
+    glow: string;
+    text: string;
+    bg: string;
+    edgeColor: string;
+  }
+> = {
+  llm: {
+    label: "LLM",
+    icon: Cpu,
+    gradient: "linear-gradient(135deg, hsl(217 91% 62% / 0.15), hsl(217 91% 62% / 0.05))",
+    border: "hsl(217 91% 62% / 0.55)",
+    glow: "0 0 20px hsl(217 91% 62% / 0.2)",
+    text: "hsl(217 91% 70%)",
+    bg: "hsl(217 91% 62%)",
+    edgeColor: "hsl(217 91% 62%)",
+  },
+  tool: {
+    label: "Tool",
+    icon: Wrench,
+    gradient: "linear-gradient(135deg, hsl(142 71% 50% / 0.15), hsl(142 71% 50% / 0.05))",
+    border: "hsl(142 71% 50% / 0.55)",
+    glow: "0 0 20px hsl(142 71% 50% / 0.2)",
+    text: "hsl(142 71% 55%)",
+    bg: "hsl(142 71% 50%)",
+    edgeColor: "hsl(142 71% 50%)",
+  },
+  rag: {
+    label: "RAG",
+    icon: Database,
+    gradient: "linear-gradient(135deg, hsl(270 91% 68% / 0.15), hsl(270 91% 68% / 0.05))",
+    border: "hsl(270 91% 68% / 0.55)",
+    glow: "0 0 20px hsl(270 91% 68% / 0.2)",
+    text: "hsl(270 91% 72%)",
+    bg: "hsl(270 91% 68%)",
+    edgeColor: "hsl(270 91% 68%)",
+  },
+  guardrail: {
+    label: "Guard",
+    icon: ShieldCheck,
+    gradient: "linear-gradient(135deg, hsl(27 96% 62% / 0.15), hsl(27 96% 62% / 0.05))",
+    border: "hsl(27 96% 62% / 0.55)",
+    glow: "0 0 20px hsl(27 96% 62% / 0.2)",
+    text: "hsl(27 96% 66%)",
+    bg: "hsl(27 96% 62%)",
+    edgeColor: "hsl(27 96% 62%)",
+  },
+  default: {
+    label: "Step",
+    icon: HelpCircle,
+    gradient: "linear-gradient(135deg, hsl(240 5% 58% / 0.15), hsl(240 5% 58% / 0.05))",
+    border: "hsl(240 5% 58% / 0.45)",
+    glow: "0 0 12px hsl(240 5% 58% / 0.12)",
+    text: "hsl(240 5% 68%)",
+    bg: "hsl(240 5% 58%)",
+    edgeColor: "hsl(240 5% 58%)",
+  },
+};
+
+/* ─── Derive Clean Node Label ────────────────────────────── */
+function deriveLabel(entry: ProvenanceEntry, category: NodeCategory): string {
+  try {
+    if (category === "rag") {
+      if (entry.output) {
+        const out = typeof entry.output === "string" ? JSON.parse(entry.output) : entry.output;
+        if (out.documents_found !== undefined) return `RAG Query → ${out.documents_found} docs`;
+      }
+      return "Semantic Retrieval";
+    }
+    if (category === "llm") {
+      if (entry.output) {
+        const out = typeof entry.output === "string" ? JSON.parse(entry.output) : entry.output;
+        if (out.action_required) return `Synthesize → ${out.action_required}`;
+        if (out.confidence !== undefined) return `LLM Call (${(out.confidence * 100).toFixed(0)}%)`;
+      }
+      return "LLM Model Call";
+    }
+    if (category === "tool") {
+      if (entry.inputState) {
+        const inp = typeof entry.inputState === "string" ? JSON.parse(entry.inputState) : entry.inputState;
+        if (inp.action) return inp.action;
+      }
+      return "Tool Execution";
+    }
+    if (category === "guardrail") {
+      return entry.reasoning ? `Guard: ${entry.reasoning.substring(0, 28)}` : "Guardrail Check";
+    }
+  } catch {
+    // fallthrough
+  }
+  return entry.decisionType || "Step";
+}
+
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Custom Mermaid-Style Node
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+function MermaidNode({ data }: NodeProps & { data: NodeData }) {
+  const { entry, category } = data;
+  const theme = THEMES[category];
+  const Icon = theme.icon;
+  const label = deriveLabel(entry, category);
+  const latency = (entry.metadata?.latency_ms || entry.metadata?.latencyMs) as
+    | string
+    | number
+    | undefined;
+
   return (
-    <>
-      <Handle type="target" position={Position.Left} className="dag-handle" />
-      <div className={`dag-flow-node dag-flow-${data.badgeType}`}>
-        <span className="dag-flow-dot" />
-        <div className="dag-flow-body">
-          <div className="dag-flow-label">{data.label}</div>
-          <div className="dag-flow-meta">{data.meta}</div>
+    <div className="mermaid-node" data-category={category}>
+      <Handle type="target" position={Position.Left} className="mermaid-handle" />
+
+      {/* Colored accent bar */}
+      <div className="mermaid-node-accent" />
+
+      {/* Content */}
+      <div className="mermaid-node-content">
+        <div className="mermaid-node-row">
+          <Icon size={13} className="mermaid-node-icon" />
+          <span className="mermaid-node-category">{theme.label}</span>
+          {latency && (
+            <span className="mermaid-node-latency">
+              <Clock size={9} />
+              {latency}ms
+            </span>
+          )}
         </div>
+        <div className="mermaid-node-label">{label}</div>
       </div>
-      <Handle type="source" position={Position.Right} className="dag-handle" />
-    </>
+
+      <Handle type="source" position={Position.Right} className="mermaid-handle" />
+    </div>
   );
 }
 
-function layout(
-  entries: ProvenanceEntry[]
-): { nodes: Node<NodeData>[]; edges: Edge[] } {
-  if (!entries || !Array.isArray(entries)) {
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Dagre Layout Engine
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
+function layout(entries: ProvenanceEntry[]): { nodes: Node<NodeData>[]; edges: Edge[] } {
+  if (!entries || !Array.isArray(entries) || entries.length === 0) {
     return { nodes: [], edges: [] };
   }
 
@@ -63,14 +205,14 @@ function layout(
   g.setGraph({ rankdir: "LR", ranksep: LEVEL_SEP, nodesep: NODE_SEP });
 
   for (const e of entries) {
-    if (e && e.entryId) {
+    if (e?.entryId) {
       g.setNode(e.entryId, { width: NODE_WIDTH, height: NODE_HEIGHT });
     }
   }
   for (const e of entries) {
-    if (e && e.entryId && e.parentIds && Array.isArray(e.parentIds)) {
+    if (e?.entryId && e.parentIds && Array.isArray(e.parentIds)) {
       for (const parentId of e.parentIds) {
-        if (parentId && entries.some((x) => x && x.entryId === parentId)) {
+        if (parentId && entries.some((x) => x?.entryId === parentId)) {
           g.setEdge(parentId, e.entryId);
         }
       }
@@ -84,43 +226,48 @@ function layout(
   }
 
   const nodes: Node<NodeData>[] = entries
-    .filter((e) => e && e.entryId)
+    .filter((e) => e?.entryId)
     .map((e) => {
-      const pos = g.node(e.entryId) || { x: 0, y: 0, width: NODE_WIDTH, height: NODE_HEIGHT };
-      const dt = e.decisionType || "";
-      const shortLabel = dt.length > 22 ? dt.substring(0, 20) + ".." : dt;
+      const pos = g.node(e.entryId) || { x: 0, y: 0 };
+      const category = classifyNode(e.decisionType || "");
       return {
         id: e.entryId,
-        type: "provenance",
+        type: "mermaid",
         position: {
-          x: pos.x - (pos.width || NODE_WIDTH) / 2,
-          y: pos.y - (pos.height || NODE_HEIGHT) / 2,
+          x: pos.x - NODE_WIDTH / 2,
+          y: pos.y - NODE_HEIGHT / 2,
         },
-        data: {
-          label: shortLabel,
-          meta: e.agentId || "",
-          badgeType: getType(dt),
-          timestamp: e.timestamp || "",
-        },
+        data: { entry: e, category },
       };
     });
 
   const edges: Edge[] = [];
   for (const e of entries) {
-    if (e && e.entryId && e.parentIds && Array.isArray(e.parentIds)) {
+    if (e?.entryId && e.parentIds && Array.isArray(e.parentIds)) {
       for (let i = 0; i < e.parentIds.length; i++) {
         const parentId = e.parentIds[i];
         if (!parentId) continue;
-        if (!entries.some((x) => x && x.entryId === parentId)) continue;
+        const parentNode = entries.find((x) => x?.entryId === parentId);
+        if (!parentNode) continue;
+        const parentCategory = classifyNode(parentNode.decisionType || "");
+        const theme = THEMES[parentCategory];
+
         edges.push({
           id: `${parentId}->${e.entryId}${i > 0 ? `_${i}` : ""}`,
           source: parentId,
           target: e.entryId,
           type: "smoothstep",
-          animated: false,
+          animated: true,
+          markerEnd: {
+            type: MarkerType.ArrowClosed,
+            width: 14,
+            height: 14,
+            color: theme.edgeColor,
+          },
           style: {
-            stroke: "hsl(var(--muted-foreground) / 0.5)",
-            strokeWidth: 1.5,
+            stroke: theme.edgeColor,
+            strokeWidth: 2,
+            filter: `drop-shadow(0 0 4px ${theme.edgeColor})`,
           },
         });
       }
@@ -130,22 +277,28 @@ function layout(
   return { nodes, edges };
 }
 
+/* ─── Time Formatter ─────────────────────────────────────── */
 function formatTime(iso: string): string {
   try {
-    const d = new Date(iso);
-    return d.toLocaleString();
+    return new Date(iso).toLocaleString();
   } catch {
     return iso;
   }
 }
 
+/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+   Main Component
+   ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */
 export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] }) {
   const [selectedId, setSelectedId] = useState<string | null>(null);
 
   const { nodes, edges } = useMemo(() => layout(entries), [entries]);
-  const nodeTypes = useMemo(() => ({ provenance: ProvenanceNode }), []);
+  const nodeTypes = useMemo(() => ({ mermaid: MermaidNode }), []);
 
-  const selectedEntry = selectedId && Array.isArray(entries) ? entries.find((e) => e && e.entryId === selectedId) ?? null : null;
+  const selectedEntry =
+    selectedId && Array.isArray(entries)
+      ? entries.find((e) => e?.entryId === selectedId) ?? null
+      : null;
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -156,11 +309,6 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
 
   const onPaneClick = useCallback(() => setSelectedId(null), []);
 
-  const canvasHeight = Math.max(
-    MIN_HEIGHT,
-    Math.max(...nodes.map((n) => n.position.y), 0) + NODE_HEIGHT + 60
-  );
-
   if (!entries || !Array.isArray(entries) || entries.length === 0) {
     return (
       <RefCard>
@@ -168,8 +316,7 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
           className="card-pad text-center"
           style={{ padding: "48px 24px", color: "hsl(var(--muted-foreground))" }}
         >
-          No provenance entries for this run. Provenance tracking requires Chorus Engine
-          runs.
+          No provenance entries for this run. Provenance tracking requires Chorus Engine runs.
         </div>
       </RefCard>
     );
@@ -178,38 +325,39 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
   return (
     <RefCard>
       <CardHeader
-        title="Provenance"
-        sub="Causal decision graph from Chorus Engine"
-        right={<RefBadge variant="primary">chorus-engine4j</RefBadge>}
+        title="Execution Provenance Graph"
+        sub="Interactive causal flowchart — click any node to inspect."
+        right={
+          <div className="flex items-center gap-2">
+            <span className="ref-badge primary">
+              <Sparkles size={11} className="mr-1" />
+              Flowchart
+            </span>
+          </div>
+        }
       />
       <div className="card-pad" style={{ padding: 0 }}>
-        <div className="dag-legend">
-          <span className="dag-legend-item">
-            <span className="dag-legend-swatch dag-legend-llm" />
-            LLM
-          </span>
-          <span className="dag-legend-item">
-            <span className="dag-legend-swatch dag-legend-tool" />
-            Tool
-          </span>
-          <span className="dag-legend-item">
-            <span className="dag-legend-swatch dag-legend-rag" />
-            RAG
-          </span>
-          <span className="dag-legend-item">
-            <span className="dag-legend-swatch dag-legend-guardrail" />
-            Guardrail
-          </span>
-          <span className="dag-legend-item">
-            <span className="dag-legend-swatch dag-legend-default" />
-            Default
-          </span>
+        {/* ─── Legend Strip ─── */}
+        <div className="mermaid-legend">
+          {(Object.entries(THEMES) as [NodeCategory, (typeof THEMES)[NodeCategory]][])
+            .filter(([cat]) => cat !== "default")
+            .map(([cat, theme]) => {
+              const Icon = theme.icon;
+              return (
+                <span key={cat} className="mermaid-legend-item">
+                  <span className="mermaid-legend-dot" style={{ background: theme.bg }} />
+                  <Icon size={11} style={{ color: theme.text }} />
+                  <span>{theme.label}</span>
+                </span>
+              );
+            })}
         </div>
 
+        {/* ─── Graph + Detail Split ─── */}
         <div style={{ display: "flex" }}>
           <div
-            style={{ flex: selectedEntry ? "1 1 65%" : "1 1 100%", height: canvasHeight, position: "relative" }}
-            className="dag-flow-wrapper"
+            className="mermaid-canvas"
+            style={{ flex: selectedEntry ? "1 1 65%" : "1 1 100%", height: CANVAS_HEIGHT }}
           >
             <ReactFlow
               nodes={nodes}
@@ -218,335 +366,447 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
               onNodeClick={onNodeClick}
               onPaneClick={onPaneClick}
               fitView
-              fitViewOptions={{ padding: 0.2 }}
+              fitViewOptions={{ padding: 0.22 }}
               nodesDraggable={false}
               nodesConnectable={false}
-              elementsSelectable={true}
-              minZoom={0.3}
+              elementsSelectable
+              minZoom={0.2}
               maxZoom={2}
               proOptions={{ hideAttribution: true }}
             >
               <Controls
-                className="dag-flow-controls"
+                className="mermaid-controls"
                 position="bottom-right"
                 showInteractive={false}
               />
-              <Background
-                gap={20}
-                size={1}
-                color="hsl(var(--border) / 0.4)"
-              />
+              <Background gap={24} size={1} color="hsl(var(--border) / 0.18)" />
             </ReactFlow>
           </div>
 
+          {/* ─── Inspector Sidebar ─── */}
           {selectedEntry && (
-            <div className="dag-detail-panel">
-              <div className="dag-detail-head">
-                <span className="dag-detail-title">Node detail</span>
-                <button onClick={() => setSelectedId(null)} className="dag-detail-close">
-                  <X size={14} />
+            <div className="mermaid-inspector">
+              <div className="mermaid-inspector-head">
+                <span className="mermaid-inspector-title">
+                  <Maximize2 size={12} style={{ color: "hsl(var(--primary-bright))" }} />
+                  <span>Node Inspector</span>
+                </span>
+                <button onClick={() => setSelectedId(null)} className="mermaid-inspector-close">
+                  <X size={13} />
                 </button>
               </div>
 
-              <div className="dag-detail-section">
-                <div className="dag-detail-label">Decision type</div>
-                <div className="dag-detail-value mono">{selectedEntry.decisionType}</div>
+              <div className="mermaid-inspector-body">
+                <InspectorField label="Decision Type" value={selectedEntry.decisionType} mono bold />
+                <InspectorField label="Agent" value={selectedEntry.agentId} mono muted />
+                {selectedEntry.timestamp && (
+                  <InspectorField label="Timestamp" value={formatTime(selectedEntry.timestamp)} mono />
+                )}
+                {selectedEntry.inputState && (
+                  <InspectorPre label="Input Context" value={selectedEntry.inputState} />
+                )}
+                {selectedEntry.reasoning && (
+                  <InspectorPre label="Reasoning" value={selectedEntry.reasoning} highlight />
+                )}
+                {selectedEntry.output && (
+                  <InspectorPre label="Output" value={selectedEntry.output} />
+                )}
+                {selectedEntry.parentIds &&
+                  Array.isArray(selectedEntry.parentIds) &&
+                  selectedEntry.parentIds.length > 0 && (
+                    <div className="mermaid-inspector-section">
+                      <div className="mermaid-inspector-label">Causal Parents</div>
+                      <div className="mermaid-inspector-tags">
+                        {selectedEntry.parentIds.map((pid) => (
+                          <span key={pid} className="mermaid-inspector-tag">
+                            {pid && pid.length > 18 ? pid.substring(0, 16) + "…" : pid}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
               </div>
-
-              <div className="dag-detail-section">
-                <div className="dag-detail-label">Agent</div>
-                <div className="dag-detail-value mono">{selectedEntry.agentId}</div>
-              </div>
-
-              <div className="dag-detail-section">
-                <div className="dag-detail-label">Run</div>
-                <div className="dag-detail-value mono" style={{ fontSize: 11 }}>
-                  {selectedEntry.runId}
-                </div>
-              </div>
-
-              {selectedEntry.timestamp && (
-                <div className="dag-detail-section">
-                  <div className="dag-detail-label">Timestamp</div>
-                  <div className="dag-detail-value" style={{ fontSize: 11 }}>
-                    {formatTime(selectedEntry.timestamp)}
-                  </div>
-                </div>
-              )}
-
-              {selectedEntry.inputState && (
-                <div className="dag-detail-section">
-                  <div className="dag-detail-label">Input state</div>
-                  <pre className="dag-detail-pre">{selectedEntry.inputState}</pre>
-                </div>
-              )}
-
-              {selectedEntry.reasoning && (
-                <div className="dag-detail-section">
-                  <div className="dag-detail-label">Reasoning</div>
-                  <pre className="dag-detail-pre">{selectedEntry.reasoning}</pre>
-                </div>
-              )}
-
-              {selectedEntry.output && (
-                <div className="dag-detail-section">
-                  <div className="dag-detail-label">Output</div>
-                  <pre className="dag-detail-pre">{selectedEntry.output}</pre>
-                </div>
-              )}
-
-              {selectedEntry && selectedEntry.parentIds && Array.isArray(selectedEntry.parentIds) && selectedEntry.parentIds.length > 0 && (
-                <div className="dag-detail-section">
-                  <div className="dag-detail-label">Parents</div>
-                  <div className="dag-detail-tags">
-                    {selectedEntry.parentIds.map((pid) => (
-                      <span key={pid} className="dag-detail-tag">
-                        {pid && pid.length > 18 ? pid.substring(0, 16) + ".." : pid}
-                      </span>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
         </div>
       </div>
 
+      {/* ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+          Mermaid-Inspired Styles
+          ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━ */}
       <style jsx>{`
-        .dag-legend {
+        /* ─── Legend ─── */
+        .mermaid-legend {
           display: flex;
-          gap: 16px;
-          padding: 10px 18px;
-          border-bottom: 1px solid hsl(var(--border));
-          background: hsl(var(--card-elev) / 0.6);
+          gap: 22px;
+          padding: 11px 20px;
+          border-bottom: 1px solid hsl(var(--border) / 0.45);
+          background: hsl(var(--card-elev) / 0.35);
           font-size: 11px;
           font-weight: 500;
           color: hsl(var(--muted-foreground));
         }
-        .dag-legend-item {
+        .mermaid-legend-item {
           display: flex;
           align-items: center;
-          gap: 6px;
+          gap: 5px;
         }
-        .dag-legend-swatch {
+        .mermaid-legend-dot {
           width: 9px;
           height: 9px;
-          border-radius: 2px;
-        }
-        .dag-legend-llm {
-          background: hsl(var(--llm));
-        }
-        .dag-legend-tool {
-          background: hsl(var(--tool));
-        }
-        .dag-legend-rag {
-          background: hsl(var(--rag));
-        }
-        .dag-legend-guardrail {
-          background: hsl(var(--guardrail));
-        }
-        .dag-legend-default {
-          background: hsl(var(--border-bright));
-        }
-
-        .dag-flow-wrapper {
-          background: hsl(var(--background) / 0.4);
-        }
-
-        .dag-flow-node {
-          display: flex;
-          align-items: center;
-          gap: 9px;
-          padding: 8px 12px;
-          background: hsl(var(--card));
-          border: 1px solid hsl(var(--border-bright));
-          border-radius: 0.375rem;
-          font-family: var(--font-mono);
-          font-size: 11.5px;
-          box-shadow: 0 4px 12px -2px rgb(0 0 0 / 0.4);
-          transition: border-color 120ms ease, box-shadow 120ms ease;
-          cursor: pointer;
-          width: 100%;
-          height: 100%;
-        }
-        .dag-flow-node:hover {
-          box-shadow: 0 12px 28px -6px rgb(0 0 0 / 0.5);
-        }
-        .dag-flow-llm {
-          border-color: hsl(var(--llm) / 0.55);
-        }
-        .dag-flow-tool {
-          border-color: hsl(var(--tool) / 0.55);
-        }
-        .dag-flow-rag {
-          border-color: hsl(var(--rag) / 0.55);
-        }
-        .dag-flow-guardrail {
-          border-color: hsl(var(--guardrail) / 0.55);
-        }
-        .dag-flow-default {
-          border-color: hsl(var(--border-bright));
-        }
-        .dag-flow-dot {
-          width: 8px;
-          height: 8px;
           border-radius: 50%;
           flex-shrink: 0;
         }
-        .dag-flow-llm .dag-flow-dot {
-          background: hsl(var(--llm));
+
+        /* ─── Canvas ─── */
+        .mermaid-canvas {
+          position: relative;
+          background:
+            radial-gradient(ellipse 70% 50% at 50% 0%, hsl(var(--primary) / 0.04), transparent 70%),
+            hsl(var(--background) / 0.35);
         }
-        .dag-flow-tool .dag-flow-dot {
-          background: hsl(var(--tool));
+
+        /* ━━━ Mermaid-style Node ━━━ */
+        .mermaid-node {
+          position: relative;
+          display: flex;
+          align-items: center;
+          width: ${NODE_WIDTH}px;
+          height: ${NODE_HEIGHT}px;
+          border-radius: 12px;
+          cursor: pointer;
+          transition: all 180ms cubic-bezier(0.4, 0, 0.2, 1);
+          overflow: hidden;
         }
-        .dag-flow-rag .dag-flow-dot {
-          background: hsl(var(--rag));
+        /* Glassmorphism background */
+        .mermaid-node::before {
+          content: "";
+          position: absolute;
+          inset: 0;
+          border-radius: 12px;
+          background: hsl(var(--card));
+          border: 1.5px solid hsl(var(--border-bright) / 0.35);
+          z-index: 0;
+          transition: border-color 180ms ease, box-shadow 180ms ease;
         }
-        .dag-flow-guardrail .dag-flow-dot {
-          background: hsl(var(--guardrail));
+        /* Per-category styles */
+        .mermaid-node[data-category="llm"]::before {
+          border-color: hsl(217 91% 62% / 0.45);
+          background: linear-gradient(135deg, hsl(217 91% 62% / 0.08), hsl(var(--card)));
         }
-        .dag-flow-default .dag-flow-dot {
-          background: hsl(var(--border-bright));
+        .mermaid-node[data-category="tool"]::before {
+          border-color: hsl(142 71% 50% / 0.45);
+          background: linear-gradient(135deg, hsl(142 71% 50% / 0.08), hsl(var(--card)));
         }
-        .dag-flow-body {
-          min-width: 0;
+        .mermaid-node[data-category="rag"]::before {
+          border-color: hsl(270 91% 68% / 0.45);
+          background: linear-gradient(135deg, hsl(270 91% 68% / 0.08), hsl(var(--card)));
+        }
+        .mermaid-node[data-category="guardrail"]::before {
+          border-color: hsl(27 96% 62% / 0.45);
+          background: linear-gradient(135deg, hsl(27 96% 62% / 0.08), hsl(var(--card)));
+        }
+
+        /* Hover glow */
+        .mermaid-node:hover::before {
+          border-color: hsl(var(--foreground-dim) / 0.5);
+          box-shadow: 0 8px 32px -4px rgb(0 0 0 / 0.4);
+        }
+        .mermaid-node[data-category="llm"]:hover::before {
+          border-color: hsl(217 91% 62% / 0.8);
+          box-shadow: 0 0 24px hsl(217 91% 62% / 0.25), 0 8px 32px -4px rgb(0 0 0 / 0.35);
+        }
+        .mermaid-node[data-category="tool"]:hover::before {
+          border-color: hsl(142 71% 50% / 0.8);
+          box-shadow: 0 0 24px hsl(142 71% 50% / 0.25), 0 8px 32px -4px rgb(0 0 0 / 0.35);
+        }
+        .mermaid-node[data-category="rag"]:hover::before {
+          border-color: hsl(270 91% 68% / 0.8);
+          box-shadow: 0 0 24px hsl(270 91% 68% / 0.25), 0 8px 32px -4px rgb(0 0 0 / 0.35);
+        }
+        .mermaid-node[data-category="guardrail"]:hover::before {
+          border-color: hsl(27 96% 62% / 0.8);
+          box-shadow: 0 0 24px hsl(27 96% 62% / 0.25), 0 8px 32px -4px rgb(0 0 0 / 0.35);
+        }
+
+        .mermaid-node:hover {
+          transform: translateY(-2px) scale(1.02);
+        }
+
+        /* Accent bar (left side) */
+        .mermaid-node-accent {
+          position: absolute;
+          left: 0;
+          top: 8px;
+          bottom: 8px;
+          width: 3px;
+          border-radius: 0 3px 3px 0;
+          z-index: 1;
+          opacity: 0.85;
+        }
+        .mermaid-node[data-category="llm"] .mermaid-node-accent { background: hsl(217 91% 62%); }
+        .mermaid-node[data-category="tool"] .mermaid-node-accent { background: hsl(142 71% 50%); }
+        .mermaid-node[data-category="rag"] .mermaid-node-accent { background: hsl(270 91% 68%); }
+        .mermaid-node[data-category="guardrail"] .mermaid-node-accent { background: hsl(27 96% 62%); }
+        .mermaid-node[data-category="default"] .mermaid-node-accent { background: hsl(var(--border-bright)); }
+
+        /* Content wrapper */
+        .mermaid-node-content {
+          position: relative;
+          z-index: 1;
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+          padding: 10px 14px 10px 14px;
+          width: 100%;
+        }
+
+        /* Top row: icon + category + latency */
+        .mermaid-node-row {
+          display: flex;
+          align-items: center;
+          gap: 5px;
+        }
+        .mermaid-node-icon {
+          flex-shrink: 0;
+        }
+        .mermaid-node[data-category="llm"] .mermaid-node-icon { color: hsl(217 91% 70%); }
+        .mermaid-node[data-category="tool"] .mermaid-node-icon { color: hsl(142 71% 55%); }
+        .mermaid-node[data-category="rag"] .mermaid-node-icon { color: hsl(270 91% 72%); }
+        .mermaid-node[data-category="guardrail"] .mermaid-node-icon { color: hsl(27 96% 66%); }
+        .mermaid-node[data-category="default"] .mermaid-node-icon { color: hsl(var(--muted-foreground)); }
+
+        .mermaid-node-category {
+          font-size: 9px;
+          text-transform: uppercase;
+          letter-spacing: 0.1em;
+          font-weight: 700;
+          color: hsl(var(--muted-foreground));
           flex: 1;
         }
-        .dag-flow-label {
-          font-weight: 500;
+        .mermaid-node-latency {
+          display: flex;
+          align-items: center;
+          gap: 2px;
+          font-family: var(--font-mono);
+          font-size: 8px;
+          font-weight: 600;
+          color: hsl(var(--muted-foreground) / 0.8);
+          background: hsl(var(--muted) / 0.35);
+          padding: 1px 5px;
+          border-radius: 4px;
+        }
+
+        /* Main label */
+        .mermaid-node-label {
+          font-size: 12px;
+          font-weight: 600;
           color: hsl(var(--foreground));
           white-space: nowrap;
           overflow: hidden;
           text-overflow: ellipsis;
           letter-spacing: -0.01em;
-        }
-        .dag-flow-meta {
-          font-size: 9.5px;
-          color: hsl(var(--muted-foreground));
-          margin-top: 2px;
-          white-space: nowrap;
-          overflow: hidden;
-          text-overflow: ellipsis;
+          line-height: 1.3;
         }
 
-        .dag-handle {
-          width: 6px !important;
-          height: 6px !important;
-          border: 1px solid hsl(var(--border-bright)) !important;
+        /* Handles — small elegant dots */
+        .mermaid-handle {
+          width: 8px !important;
+          height: 8px !important;
+          border: 2px solid hsl(var(--border-bright)) !important;
           background: hsl(var(--card)) !important;
-          border-radius: 50% !important;
+          box-shadow: 0 0 0 2px hsl(var(--background)) !important;
+          transition: all 140ms ease !important;
+        }
+        .mermaid-node:hover .mermaid-handle {
+          border-color: hsl(var(--foreground-dim)) !important;
+          transform: scale(1.15);
         }
 
-        .dag-flow-controls {
+        /* ─── Controls ─── */
+        .mermaid-controls {
           background: hsl(var(--card)) !important;
-          border: 1px solid hsl(var(--border)/0.35) !important;
-          border-radius: 0.375rem !important;
+          border: 1px solid hsl(var(--border) / 0.4) !important;
+          border-radius: 8px !important;
           box-shadow: 0 8px 24px -8px rgb(0 0 0 / 0.5) !important;
-          bottom: 10px !important;
-          right: 10px !important;
+          overflow: hidden !important;
         }
-        .dag-flow-controls button {
+        .mermaid-controls button {
           background: transparent !important;
           border: 0 !important;
           color: hsl(var(--muted-foreground)) !important;
           fill: hsl(var(--muted-foreground)) !important;
         }
-        .dag-flow-controls button:hover {
+        .mermaid-controls button:hover {
           background: hsl(var(--muted) / 0.5) !important;
           color: hsl(var(--foreground)) !important;
-          fill: hsl(var(--foreground)) !important;
         }
 
-        .dag-detail-panel {
-          width: 280px;
+        /* ─── Inspector Sidebar ─── */
+        .mermaid-inspector {
+          width: 320px;
           flex-shrink: 0;
           border-left: 1px solid hsl(var(--border));
           background: hsl(var(--card-elev));
           display: flex;
           flex-direction: column;
-          max-height: 420px;
+          height: ${CANVAS_HEIGHT}px;
           overflow-y: auto;
+          animation: inspectorSlideIn 160ms cubic-bezier(0, 0, 0.2, 1);
         }
-        .dag-detail-head {
+        @keyframes inspectorSlideIn {
+          from { transform: translateX(10px); opacity: 0; }
+          to { transform: translateX(0); opacity: 1; }
+        }
+
+        .mermaid-inspector-head {
           display: flex;
           align-items: center;
           justify-content: space-between;
-          padding: 12px 14px;
+          padding: 14px 16px;
           border-bottom: 1px solid hsl(var(--border));
           position: sticky;
           top: 0;
           background: hsl(var(--card-elev));
-          z-index: 1;
+          z-index: 10;
         }
-        .dag-detail-title {
+        .mermaid-inspector-title {
           font-size: 12px;
           font-weight: 600;
           color: hsl(var(--foreground));
+          display: flex;
+          align-items: center;
+          gap: 6px;
         }
-        .dag-detail-close {
+        .mermaid-inspector-close {
           display: grid;
           place-items: center;
           width: 24px;
           height: 24px;
-          border-radius: 4px;
+          border-radius: 5px;
           color: hsl(var(--muted-foreground));
           cursor: pointer;
           transition: background 100ms ease;
         }
-        .dag-detail-close:hover {
+        .mermaid-inspector-close:hover {
           background: hsl(var(--muted) / 0.5);
           color: hsl(var(--foreground));
         }
-        .dag-detail-section {
-          padding: 10px 14px;
-          border-bottom: 1px solid hsl(var(--border) / 0.6);
+        .mermaid-inspector-body {
+          flex: 1;
         }
-        .dag-detail-section:last-child {
+        .mermaid-inspector-section {
+          padding: 12px 16px;
+          border-bottom: 1px solid hsl(var(--border) / 0.5);
+        }
+        .mermaid-inspector-section:last-child {
           border-bottom: 0;
         }
-        .dag-detail-label {
-          font-size: 10px;
+        .mermaid-inspector-label {
+          font-size: 9px;
           text-transform: uppercase;
-          letter-spacing: 0.08em;
-          font-weight: 600;
+          letter-spacing: 0.1em;
+          font-weight: 700;
           color: hsl(var(--muted-foreground));
-          margin-bottom: 4px;
+          margin-bottom: 5px;
         }
-        .dag-detail-value {
+        .mermaid-inspector-value {
           font-size: 12px;
           color: hsl(var(--foreground));
           line-height: 1.4;
         }
-        .dag-detail-pre {
+        .mermaid-inspector-value.mono {
+          font-family: var(--font-mono);
+        }
+        .mermaid-inspector-value.bold {
+          font-weight: 600;
+        }
+        .mermaid-inspector-value.muted {
+          color: hsl(var(--muted-foreground));
+        }
+        .mermaid-inspector-pre {
           font-family: var(--font-mono);
           font-size: 10.5px;
           line-height: 1.5;
           padding: 8px 10px;
-          background: hsl(var(--background) / 0.6);
-          border-radius: 4px;
+          background: hsl(var(--background) / 0.7);
+          border-radius: 6px;
           border: 1px solid hsl(var(--border) / 0.5);
           color: hsl(var(--foreground-dim));
           white-space: pre-wrap;
           word-break: break-word;
-          max-height: 120px;
+          max-height: 140px;
           overflow-y: auto;
           margin: 0;
         }
-        .dag-detail-tags {
+        .mermaid-inspector-pre.highlight {
+          border-color: hsl(var(--primary) / 0.3);
+          background: hsl(var(--primary) / 0.03);
+          color: hsl(var(--foreground));
+        }
+        .mermaid-inspector-tags {
           display: flex;
           flex-wrap: wrap;
           gap: 4px;
         }
-        .dag-detail-tag {
+        .mermaid-inspector-tag {
           font-family: var(--font-mono);
           font-size: 10px;
           padding: 2px 6px;
-          background: hsl(var(--muted) / 0.5);
+          background: hsl(var(--muted) / 0.55);
           border: 1px solid hsl(var(--border) / 0.5);
-          border-radius: 3px;
+          border-radius: 4px;
           color: hsl(var(--foreground-dim));
         }
       `}</style>
     </RefCard>
+  );
+}
+
+/* ─── Inspector Helper Components ────────────────────────── */
+function InspectorField({
+  label,
+  value,
+  mono,
+  bold,
+  muted,
+}: {
+  label: string;
+  value: string;
+  mono?: boolean;
+  bold?: boolean;
+  muted?: boolean;
+}) {
+  const classes = [
+    "mermaid-inspector-value",
+    mono && "mono",
+    bold && "bold",
+    muted && "muted",
+  ]
+    .filter(Boolean)
+    .join(" ");
+
+  return (
+    <div className="mermaid-inspector-section">
+      <div className="mermaid-inspector-label">{label}</div>
+      <div className={classes}>{value}</div>
+    </div>
+  );
+}
+
+function InspectorPre({
+  label,
+  value,
+  highlight,
+}: {
+  label: string;
+  value: string;
+  highlight?: boolean;
+}) {
+  return (
+    <div className="mermaid-inspector-section">
+      <div className="mermaid-inspector-label">{label}</div>
+      <pre className={`mermaid-inspector-pre${highlight ? " highlight" : ""}`}>{value}</pre>
+    </div>
   );
 }

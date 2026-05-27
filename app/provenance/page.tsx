@@ -7,7 +7,7 @@ import PageHeader from "@/components/shared/PageHeader";
 import RefButton from "@/components/primitives/RefButton";
 import ProvenanceDag from "@/components/run-detail/ProvenanceDag";
 import { Search, RefreshCw, ArrowRight } from "lucide-react";
-import type { ProvenanceEntry } from "@/types";
+import type { ProvenanceEntry, Run } from "@/types";
 
 export default function ProvenancePage() {
   return (
@@ -39,11 +39,13 @@ function ProvenanceContent() {
   const [entries, setEntries] = useState<ProvenanceEntry[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [recentRuns, setRecentRuns] = useState<Run[]>([]);
 
   const fetchProvenance = useCallback(
     async (id: string) => {
       if (!id.trim()) return;
       setRunId(id.trim());
+      setRunIdInput(id.trim());
       setLoading(true);
       setError(null);
       try {
@@ -65,6 +67,22 @@ function ProvenanceContent() {
   useEffect(() => {
     if (initialRunId) {
       fetchProvenance(initialRunId);
+    } else {
+      // Auto-load first seeded run that has provenance data by default
+      const loadDefaultProvenance = async () => {
+        try {
+          const res = await api.listRuns({ page: 0, size: 5 });
+          if (res && res.runs && res.runs.length > 0) {
+            setRecentRuns(res.runs);
+            // By default, the seeded runs have provenance entries
+            const defaultRunId = res.runs[0].runId;
+            fetchProvenance(defaultRunId);
+          }
+        } catch (err) {
+          console.error("Failed to load default runs", err);
+        }
+      };
+      loadDefaultProvenance();
     }
   }, [initialRunId, fetchProvenance]);
 
@@ -95,6 +113,31 @@ function ProvenanceContent() {
           </RefButton>
         }
       />
+
+      {recentRuns.length > 0 && (
+        <div className="flex flex-col gap-2" style={{ borderBottom: "1px solid hsl(var(--border) / 0.5)", paddingBottom: 16 }}>
+          <div style={{ fontSize: 11, fontWeight: 600, textTransform: "uppercase", letterSpacing: "0.05em", color: "hsl(var(--muted-foreground))" }}>
+            Seeded Runs with Provenance
+          </div>
+          <div className="flex gap-2 flex-wrap">
+            {recentRuns.map((r) => {
+              const active = r.runId === runId;
+              return (
+                <RefButton
+                  key={r.runId}
+                  size="sm"
+                  variant={active ? "primary" : "outline"}
+                  onClick={() => {
+                    router.replace(`/provenance?runId=${encodeURIComponent(r.runId)}`);
+                  }}
+                >
+                  {r.agentId} ({r.runId.substring(0, 10)}...)
+                </RefButton>
+              );
+            })}
+          </div>
+        </div>
+      )}
 
       <div className="flex items-center gap-3 flex-wrap">
         <div style={{ flex: 1, maxWidth: 420 }}>
