@@ -42,7 +42,7 @@ export default function DashboardPage() {
     {
       lbl: "Runs (24h)",
       val: metrics.totalRuns.toLocaleString(),
-      delta: metrics.runsDelta ?? 0,
+      delta: metrics.runsDelta,
       spark: metrics.runsSpark ?? [],
       color: "hsl(var(--primary-bright))",
       fill: "hsl(var(--primary) / 0.12)",
@@ -52,7 +52,7 @@ export default function DashboardPage() {
       val: metrics.totalTokens >= 1_000_000
         ? `${(metrics.totalTokens / 1_000_000).toFixed(2)}M`
         : `${(metrics.totalTokens / 1_000).toFixed(1)}k`,
-      delta: metrics.tokensDelta ?? 0,
+      delta: metrics.tokensDelta,
       spark: metrics.tokensSpark ?? [],
       color: "hsl(var(--llm))",
       fill: "hsl(var(--llm) / 0.12)",
@@ -61,7 +61,7 @@ export default function DashboardPage() {
       lbl: "Cost (24h)",
       val: `$${metrics.totalCost.toFixed(2)}`,
       unit: "USD",
-      delta: metrics.costDelta ?? 0,
+      delta: metrics.costDelta,
       spark: metrics.costSpark ?? [],
       color: "hsl(var(--guardrail))",
       fill: "hsl(var(--guardrail) / 0.12)",
@@ -71,16 +71,16 @@ export default function DashboardPage() {
       val: metrics.p95LatencyMs && metrics.p95LatencyMs >= 1000
         ? `${(metrics.p95LatencyMs / 1000).toFixed(1)}s`
         : `${Math.round(metrics.avgLatencyMs)}ms`,
-      delta: metrics.latencyDelta ?? 0,
+      delta: metrics.latencyDelta,
       spark: metrics.latencySpark ?? [],
       color: "hsl(var(--tool))",
       fill: "hsl(var(--tool) / 0.12)",
     },
   ] : [
-    { lbl: "Runs (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
-    { lbl: "Tokens (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
-    { lbl: "Cost (24h)", val: "—", delta: 0, spark: [], color: "", fill: "" },
-    { lbl: "p95 latency", val: "—", delta: 0, spark: [], color: "", fill: "" },
+    { lbl: "Runs (24h)", val: "—", spark: [], color: "", fill: "" },
+    { lbl: "Tokens (24h)", val: "—", spark: [], color: "", fill: "" },
+    { lbl: "Cost (24h)", val: "—", spark: [], color: "", fill: "" },
+    { lbl: "p95 latency", val: "—", spark: [], color: "", fill: "" },
   ];
 
   const statusData = metrics?.statusBreakdown ?? [];
@@ -91,8 +91,13 @@ export default function DashboardPage() {
         title="Overview"
         accent="/ last 24h"
         sub={metrics
-          ? `${(metrics.totalRuns / (24 * 60)).toFixed(1)} runs/min · ${(100 - (metrics.errorRate ?? 0)).toFixed(1)}% delivery`
-          : "loading…"
+          ? [
+              `${(metrics.totalRuns / (24 * 60)).toFixed(1)} runs/min`,
+              metrics.errorRate !== undefined
+                ? `${(100 - metrics.errorRate).toFixed(1)}% delivery`
+                : null,
+            ].filter(Boolean).join(" · ")
+          : "Monitoring your AI agents in real-time"
         }
         actions={
           <>

@@ -269,12 +269,21 @@ function LoginForm() {
   const searchParams = useSearchParams();
   const redirectTo = searchParams.get("from") || "/";
 
-  const [tenantId, setTenantId] = useState("");
+  const [tenantId, setTenantId] = useState(() =>
+    typeof window !== "undefined" ? (localStorage.getItem("chorus_tenant_id") ?? "") : ""
+  );
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+
+  // Workspace lookup state
+  const [showLookup, setShowLookup] = useState(false);
+  const [lookupEmail, setLookupEmail] = useState("");
+  const [lookupLoading, setLookupLoading] = useState(false);
+  const [lookupDone, setLookupDone] = useState(false);
+  const [lookupError, setLookupError] = useState("");
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -288,10 +297,28 @@ function LoginForm() {
       setError(
         msg.includes("429") || msg.toLowerCase().includes("locked")
           ? "Account temporarily locked — too many failed attempts. Try again later."
-          : "Invalid tenant ID, email, or password."
+          : "Invalid workspace ID, email, or password."
       );
     } finally {
       setLoading(false);
+    }
+  };
+
+  const handleLookup = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setLookupError("");
+    setLookupLoading(true);
+    try {
+      await fetch("/api/auth/workspace-lookup", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ email: lookupEmail }),
+      });
+      setLookupDone(true);
+    } catch {
+      setLookupError("Request failed — please try again.");
+    } finally {
+      setLookupLoading(false);
     }
   };
 
@@ -349,9 +376,61 @@ function LoginForm() {
                 autoComplete="organization"
                 required
               />
-              <p style={{ fontSize: 11, color: "#374151", marginTop: 5 }}>
-                Provided when your workspace was created
-              </p>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginTop: 5 }}>
+                <p style={{ fontSize: 11, color: "#374151", margin: 0 }}>
+                  Provided when your workspace was created
+                </p>
+                <button
+                  type="button"
+                  onClick={() => { setShowLookup(v => !v); setLookupDone(false); setLookupError(""); }}
+                  style={{ fontSize: 11, color: "#6366f1", background: "none", border: "none", cursor: "pointer", padding: 0, fontWeight: 500 }}
+                >
+                  Forgot it?
+                </button>
+              </div>
+
+              {showLookup && (
+                <div style={{
+                  marginTop: 12, padding: "14px 16px", borderRadius: 10,
+                  background: "rgba(99,102,241,0.06)", border: "1px solid rgba(99,102,241,0.2)",
+                }}>
+                  {lookupDone ? (
+                    <p style={{ fontSize: 13, color: "#a5b4fc", margin: 0 }}>
+                      ✓ Check your inbox — we sent your workspace ID to that address if an account exists.
+                    </p>
+                  ) : (
+                    <form onSubmit={handleLookup}>
+                      <p style={{ fontSize: 12, color: "#94a3b8", marginBottom: 10 }}>
+                        Enter your email and we'll send your workspace ID to your inbox.
+                      </p>
+                      <div style={{ display: "flex", gap: 8 }}>
+                        <input
+                          className="auth-input"
+                          type="email"
+                          placeholder="you@company.com"
+                          value={lookupEmail}
+                          onChange={e => setLookupEmail(e.target.value)}
+                          required
+                          style={{ flex: 1, padding: "10px 12px", fontSize: 13 }}
+                        />
+                        <button
+                          type="submit"
+                          disabled={lookupLoading}
+                          style={{
+                            padding: "10px 16px", borderRadius: 8, border: "none",
+                            background: "#4f46e5", color: "#fff", fontSize: 13, fontWeight: 600,
+                            cursor: lookupLoading ? "not-allowed" : "pointer", opacity: lookupLoading ? 0.6 : 1,
+                            whiteSpace: "nowrap",
+                          }}
+                        >
+                          {lookupLoading ? "Sending…" : "Send"}
+                        </button>
+                      </div>
+                      {lookupError && <p style={{ fontSize: 12, color: "#fca5a5", marginTop: 6 }}>{lookupError}</p>}
+                    </form>
+                  )}
+                </div>
+              )}
             </div>
 
             {/* Email */}

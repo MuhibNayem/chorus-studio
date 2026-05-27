@@ -9,7 +9,8 @@ import { formatTokens, formatCost, formatDuration, formatRel } from "@/lib/utils
 import { ArrowRight } from "lucide-react";
 import type { Run } from "@/types";
 
-function generateDeterministicMix(runId: string, framework: string): [string, number][] {
+function generateDeterministicMix(runId: string | undefined, framework: string | undefined): [string, number][] {
+  if (!runId) return [["llm", 60], ["tool", 40]];
   let hash = 0;
   for (let i = 0; i < runId.length; i++) {
     hash = ((hash << 5) - hash) + runId.charCodeAt(i);

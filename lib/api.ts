@@ -19,7 +19,11 @@ import type {
   RunEvaluation,
   AlertEvent,
   AlertRule,
+  NotificationChannel,
+  ChannelType,
   RetentionPolicy,
+  ExportConfig,
+  SmtpConfig,
   PromptVersion,
   PromptTag,
   PromptAbTest,
@@ -31,6 +35,16 @@ import type {
   RagQueryEntry,
   RagQueryDetail,
   AuditLogEntry,
+  SsoConfig,
+  SsoHealth,
+  SsoProvider,
+  ProviderHealth,
+  SpMetadata,
+  RoleMapping,
+  PiiConfig,
+  PlatformInfo,
+  ApiKeyInfo,
+  ApiKeyCreated,
 } from "@/types";
 
 // All API calls go through the Next.js catch-all proxy (/api/proxy/...) which runs
@@ -85,6 +99,9 @@ async function fetchJson<T>(path: string, options?: RequestInit): Promise<T> {
     const text = await res.text().catch(() => "Unknown error");
     throw new Error(`API ${res.status}: ${text}`);
   }
+  if (res.status === 204 || res.status === 205) {
+    return undefined as T;
+  }
   return res.json() as Promise<T>;
 }
 
@@ -136,7 +153,8 @@ export const api = {
   /* ── Runs ───────────────────────────────────────────────── */
 
   listRuns: (params?: Record<string, string | number | undefined>) =>
-    fetchJson<{ runs: Run[]; total: number; page: number; size: number }>(`/api/v1/runs${qs(params)}`),
+    fetchJson<{ runs: { run: Run; evalSummary: unknown }[]; total: number; page: number; size: number }>(`/api/v1/runs${qs(params)}`)
+      .then((res) => ({ ...res, runs: res.runs.map((item) => item.run ?? item) })),
 
   getRun: (runId: string) => fetchJson<Run>(`/api/v1/runs/${runId}`),
 
@@ -372,9 +390,94 @@ export const api = {
       body: JSON.stringify(body),
     }),
 
+  /* ── Notification Channels ──────────────────────────────── */
+
+  listChannels: () =>
+    fetchJson<NotificationChannel[]>("/api/v1/notification-channels"),
+
+  createChannel: (body: { name: string; channelType: ChannelType; config: Record<string, unknown> }) =>
+    fetchJson<NotificationChannel>("/api/v1/notification-channels", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateChannel: (channelId: string, body: { name: string; channelType: ChannelType; config: Record<string, unknown>; enabled: boolean }) =>
+    fetchJson<NotificationChannel>(`/api/v1/notification-channels/${channelId}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteChannel: (channelId: string) =>
+    fetchJson<void>(`/api/v1/notification-channels/${channelId}`, { method: "DELETE" }),
+
+  testChannel: (channelId: string) =>
+    fetchJson<{ success: boolean; error?: string }>(`/api/v1/notification-channels/${channelId}/test`, { method: "POST" }),
+
+  toggleChannel: (channelId: string, enabled: boolean) =>
+    fetchJson<void>(`/api/v1/notification-channels/${channelId}/toggle`, {
+      method: "PATCH",
+      body: JSON.stringify({ enabled }),
+    }),
+
+  listRuleChannels: (ruleId: string) =>
+    fetchJson<NotificationChannel[]>(`/api/v1/alerts/rules/${ruleId}/channels`),
+
+  linkChannelToRule: (ruleId: string, channelId: string) =>
+    fetchJson<void>(`/api/v1/alerts/rules/${ruleId}/channels/${channelId}`, { method: "POST" }),
+
+  unlinkChannelFromRule: (ruleId: string, channelId: string) =>
+    fetchJson<void>(`/api/v1/alerts/rules/${ruleId}/channels/${channelId}`, { method: "DELETE" }),
+
   /* ── Settings ───────────────────────────────────────────── */
 
   getRetentionPolicies: () => fetchJson<RetentionPolicy[]>("/api/v1/retention-policies"),
+
+  createRetentionPolicy: (body: {
+    name: string;
+    resourceType: string;
+    retentionDays: number;
+    archiveEnabled?: boolean;
+    archiveLocation?: string;
+  }) =>
+    fetchJson<{ policyId: string }>("/api/v1/retention-policies", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  deleteRetentionPolicy: (policyId: string) =>
+    fetchJson<void>(`/api/v1/retention-policies/${policyId}`, { method: "DELETE" }),
+
+  getExportConfig: () =>
+    fetchJson<ExportConfig>("/api/v1/export-configs"),
+
+  saveExportConfig: (body: {
+    endpointUrl?: string;
+    region?: string;
+    bucketName?: string;
+    accessKeyId?: string;
+    secretAccessKey?: string;
+    pathPrefix?: string;
+    enabled?: boolean;
+  }) =>
+    fetchJson<ExportConfig>("/api/v1/export-configs", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  getSmtpConfig: () =>
+    fetchJson<SmtpConfig>("/api/v1/settings/smtp"),
+
+  saveSmtpConfig: (body: SmtpConfig) =>
+    fetchJson<SmtpConfig>("/api/v1/settings/smtp", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  testSmtpConfig: (to?: string) =>
+    fetchJson<{ message: string }>("/api/v1/settings/smtp/test", {
+      method: "POST",
+      body: JSON.stringify({ to }),
+    }),
 
   /* ── Prompts ────────────────────────────────────────────── */
 
@@ -464,4 +567,92 @@ export const api = {
 
   listAuditLogs: (page = 0, size = 20) =>
     fetchJson<PagedResult<AuditLogEntry>>(`/api/v1/audit-logs${qs({ page, size })}`),
+
+  /* ── SSO (multi-IdP) ─────────────────────────────────────── */
+
+  listSsoProviders: () =>
+    fetchJson<SsoProvider[]>("/api/v1/sso/providers"),
+
+  createSamlProvider: (body: Omit<SsoProvider, "id" | "createdAt" | "updatedAt" | "hasCertPem" | "hasMetadataXml">) =>
+    fetchJson<SsoProvider>("/api/v1/sso/providers/saml", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateSamlProvider: (id: string, body: Omit<SsoProvider, "id" | "createdAt" | "updatedAt" | "hasCertPem" | "hasMetadataXml">) =>
+    fetchJson<SsoProvider>(`/api/v1/sso/providers/saml/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  createOidcProvider: (body: Omit<SsoProvider, "id" | "createdAt" | "updatedAt" | "hasCertPem" | "hasMetadataXml">) =>
+    fetchJson<SsoProvider>("/api/v1/sso/providers/oidc", {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+
+  updateOidcProvider: (id: string, body: Omit<SsoProvider, "id" | "createdAt" | "updatedAt" | "hasCertPem" | "hasMetadataXml">) =>
+    fetchJson<SsoProvider>(`/api/v1/sso/providers/oidc/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  deleteProvider: (id: string, protocol: "SAML" | "OIDC") =>
+    fetchJson<void>(`/api/v1/sso/providers/${id}?protocol=${protocol}`, { method: "DELETE" }),
+
+  toggleProvider: (id: string, protocol: "SAML" | "OIDC", enabled: boolean) =>
+    fetchJson<void>(`/api/v1/sso/providers/${id}/toggle?protocol=${protocol}&enabled=${enabled}`, {
+      method: "PATCH",
+    }),
+
+  uploadSamlMetadata: (id: string, metadataXml: string) =>
+    fetchJson<SsoProvider>(`/api/v1/sso/providers/saml/${id}/metadata-upload`, {
+      method: "POST",
+      body: JSON.stringify({ metadataXml }),
+    }),
+
+  getSsoHealth: () =>
+    fetchJson<ProviderHealth[]>("/api/v1/sso/health"),
+
+  getSpMetadata: () =>
+    fetchJson<SpMetadata>("/api/v1/sso/sp-metadata"),
+
+  rotateSpKey: () =>
+    fetchJson<void>("/api/v1/sso/sp-keys/rotate", { method: "POST" }),
+
+  /* ── PII Redaction ───────────────────────────────────────── */
+
+  getPiiConfig: () =>
+    fetchJson<PiiConfig>("/api/v1/pii/config"),
+
+  savePiiConfig: (body: PiiConfig) =>
+    fetchJson<void>("/api/v1/pii/config", {
+      method: "PUT",
+      body: JSON.stringify(body),
+    }),
+
+  /* ── Platform info ──────────────────────────────────────── */
+
+  getPlatformInfo: () =>
+    fetchJson<PlatformInfo>("/api/v1/settings/platform"),
+
+  savePlatformInfo: (publicUrl: string) =>
+    fetchJson<void>("/api/v1/settings/platform", {
+      method: "PUT",
+      body: JSON.stringify({ publicUrl }),
+    }),
+
+  /* ── API Keys ───────────────────────────────────────────── */
+
+  listApiKeys: () =>
+    fetchJson<ApiKeyInfo[]>("/api/v1/settings/api-keys"),
+
+  createApiKey: (name: string, scopes: string[]) =>
+    fetchJson<ApiKeyCreated>("/api/v1/settings/api-keys", {
+      method: "POST",
+      body: JSON.stringify({ name, scopes }),
+    }),
+
+  revokeApiKey: (keyHash: string) =>
+    fetchJson<void>(`/api/v1/settings/api-keys/${keyHash}`, { method: "DELETE" }),
 };

@@ -39,8 +39,8 @@ export default function RunsTable({ runs }: { runs: Run[] }) {
           <tr key={r.runId}>
             <td><StatusBadge status={r.status} /></td>
             <td>
-              <Link href={`/runs/${r.runId}`} className="row-id block">
-                run_{r.runId.slice(0, 18)}…
+              <Link href={`/runs/${r.runId ?? ""}`} className="row-id block">
+                run_{(r.runId ?? "").slice(0, 18)}…
               </Link>
               <div className="mute" style={{ fontSize: 10, marginTop: 1, fontFamily: "var(--font-mono)" }}>{r.framework}</div>
             </td>

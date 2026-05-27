@@ -224,8 +224,15 @@ function AuthPanel() {
 }
 
 /* ─── Register page ─────────────────────────────────────── */
+function copyToClipboard(text: string, setCopied: (v: boolean) => void) {
+  navigator.clipboard.writeText(text).then(() => {
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  });
+}
+
 export default function RegisterPage() {
-  const { register, isAuthenticated } = useAuth();
+  const { register, isAuthenticated, user } = useAuth();
   const router = useRouter();
 
   const [displayName, setDisplayName] = useState("");
@@ -235,8 +242,11 @@ export default function RegisterPage() {
   const [showPw, setShowPw] = useState(false);
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
+  const [registered, setRegistered] = useState(false);
+  const [newTenantId, setNewTenantId] = useState("");
+  const [copied, setCopied] = useState(false);
 
-  if (isAuthenticated) {
+  if (isAuthenticated && !registered) {
     router.push("/");
     return null;
   }
@@ -253,7 +263,12 @@ export default function RegisterPage() {
     setLoading(true);
     try {
       await register(email, password, displayName);
-      router.push("/");
+      // user is now set in AuthContext — grab tenantId from the response
+      const tid = typeof window !== "undefined"
+        ? (localStorage.getItem("chorus_tenant_id") ?? "")
+        : "";
+      setNewTenantId(tid);
+      setRegistered(true);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : "Registration failed";
       setError(msg.includes("409") || msg.toLowerCase().includes("already")
@@ -263,6 +278,82 @@ export default function RegisterPage() {
       setLoading(false);
     }
   };
+
+  if (registered) {
+    return (
+      <div style={{ background: "#07070d", minHeight: "100vh", display: "flex", overflow: "hidden" }}>
+        <style>{CSS}</style>
+        <AuthPanel />
+        <div style={{
+          flex: 1, display: "flex", alignItems: "center", justifyContent: "center",
+          padding: "40px 32px", background: "rgba(255,255,255,0.015)",
+          borderLeft: "1px solid rgba(255,255,255,0.06)",
+        }}>
+          <div style={{ width: "100%", maxWidth: 400 }} className="fade-in">
+            <div style={{ textAlign: "center", marginBottom: 32 }}>
+              <div style={{
+                width: 64, height: 64, borderRadius: "50%", margin: "0 auto 20px",
+                background: "rgba(34,197,94,0.12)", border: "1.5px solid rgba(34,197,94,0.4)",
+                display: "flex", alignItems: "center", justifyContent: "center", fontSize: 28,
+              }}>✓</div>
+              <h1 style={{ fontSize: 26, fontWeight: 800, color: "#f1f5f9", letterSpacing: "-0.03em", marginBottom: 8 }}>
+                Workspace created!
+              </h1>
+              <p style={{ color: "#64748b", fontSize: 14 }}>
+                Save your Workspace ID — you'll need it every time you sign in.
+              </p>
+            </div>
+
+            <div style={{
+              padding: "20px", borderRadius: 12, marginBottom: 24,
+              background: "rgba(99,102,241,0.06)", border: "1.5px solid rgba(99,102,241,0.3)",
+            }}>
+              <div style={{ fontSize: 11, fontWeight: 700, color: "#818cf8", textTransform: "uppercase", letterSpacing: "0.08em", marginBottom: 10 }}>
+                Your Workspace ID
+              </div>
+              <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                <code style={{
+                  flex: 1, fontSize: 15, fontWeight: 700, color: "#e2e8f0",
+                  fontFamily: "monospace", wordBreak: "break-all",
+                }}>{newTenantId || user?.tenantId}</code>
+                <button
+                  onClick={() => copyToClipboard(newTenantId || user?.tenantId || "", setCopied)}
+                  style={{
+                    flexShrink: 0, padding: "8px 14px", borderRadius: 8,
+                    background: copied ? "rgba(34,197,94,0.15)" : "rgba(99,102,241,0.15)",
+                    border: `1px solid ${copied ? "rgba(34,197,94,0.4)" : "rgba(99,102,241,0.3)"}`,
+                    color: copied ? "#86efac" : "#a5b4fc",
+                    fontSize: 12, fontWeight: 600, cursor: "pointer",
+                  }}
+                >
+                  {copied ? "✓ Copied" : "Copy"}
+                </button>
+              </div>
+            </div>
+
+            <div style={{
+              padding: "14px 16px", borderRadius: 10, marginBottom: 28,
+              background: "rgba(251,191,36,0.06)", border: "1px solid rgba(251,191,36,0.2)",
+              display: "flex", gap: 10, alignItems: "flex-start",
+            }}>
+              <span style={{ fontSize: 14, flexShrink: 0 }}>⚠</span>
+              <p style={{ fontSize: 12, color: "#fde68a", margin: 0, lineHeight: 1.6 }}>
+                This ID won't be shown again. If you forget it, use the{" "}
+                <strong>"Forgot it?"</strong> link on the sign-in page and we'll email it to you.
+              </p>
+            </div>
+
+            <button
+              onClick={() => router.push("/")}
+              className="auth-btn"
+            >
+              Go to Dashboard →
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div style={{ background: "#07070d", minHeight: "100vh", display: "flex", overflow: "hidden" }}>

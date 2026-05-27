@@ -276,12 +276,65 @@ export interface AlertRule {
   cooldownSeconds: number;
 }
 
+export type ChannelType = "SLACK" | "TEAMS" | "PAGERDUTY" | "WEBHOOK" | "EMAIL";
+
+export interface NotificationChannel {
+  channelId: string;
+  tenantId: string;
+  name: string;
+  channelType: ChannelType;
+  config: Record<string, unknown>;
+  enabled: boolean;
+  lastUsedAt?: string;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface NotificationDelivery {
+  deliveryId: string;
+  eventId: string;
+  channelId: string;
+  status: "pending" | "sent" | "failed" | "dlq";
+  attemptCount: number;
+  lastError?: string;
+  sentAt?: string;
+  createdAt: string;
+}
+
 /* ── Settings / Retention ─────────────────────────────────── */
 
 export interface RetentionPolicy {
+  policyId: string;
   tier: string;
+  resourceType: string;
+  retentionDays: number;
   duration: string;
   pct: number;
+  archiveEnabled?: boolean;
+  archiveLocation?: string;
+}
+
+export interface ExportConfig {
+  configId?: string;
+  endpointUrl?: string;
+  region?: string;
+  bucketName?: string;
+  accessKeyId?: string;
+  secretAccessKey?: string;
+  pathPrefix?: string;
+  enabled?: boolean;
+  createdAt?: string;
+  updatedAt?: string;
+}
+
+export interface SmtpConfig {
+  host: string;
+  port: number;
+  username: string;
+  password?: string;
+  from: string;
+  useTls: boolean;
+  enabled: boolean;
 }
 
 export interface Setting {
@@ -427,20 +480,146 @@ export interface RagQueryDetail extends RagQueryEntry {
   similarityScores: number[];
 }
 
+/* ── Enterprise / SSO ────────────────────────────────────── */
+
+export interface RoleMapping {
+  claim: string;
+  value: string;
+  role: string;
+}
+
+export interface SsoProvider {
+  id?: string;
+  providerName: string;
+  protocol: "SAML" | "OIDC";
+  enabled: boolean;
+  // SAML-specific
+  entityId?: string;
+  signOnUrl?: string;
+  signingCertThumbprint?: string;
+  metadataUrl?: string;
+  acsUrl?: string;
+  // OIDC-specific
+  clientId?: string;
+  /** Only sent on create/update — never returned by the server */
+  clientSecret?: string;
+  issuerUri?: string;
+  scopes?: string[];
+  /** SAML: direct PEM cert — only sent on create/update */
+  idpCertPem?: string;
+  /** SAML: metadata XML — sent separately via metadata-upload endpoint */
+  idpMetadataXml?: string;
+  // Common
+  defaultRole: string;
+  roleMappings: RoleMapping[];
+  allowedDomains: string[];
+  attributeMappings: Record<string, string>;
+  hasCertPem: boolean;
+  hasMetadataXml: boolean;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface ProviderHealth {
+  id?: string;
+  providerName: string;
+  protocol: string;
+  status: "ok" | "error" | "disabled" | "idle";
+  metadataUrl?: string;
+  message?: string;
+}
+
+export interface SpMetadata {
+  acsUrl: string;
+  entityId: string;
+  scimEndpoint?: string;
+  spCertPem?: string;
+}
+
+/** @deprecated Use SsoProvider — kept for backward-compatibility with any remaining callers */
+export interface SsoConfig {
+  provider: string;
+  clientId: string;
+  issuer: string;
+  samlEntityId: string;
+  samlEntrypoint: string;
+  scimEnabled: boolean;
+}
+
+/** @deprecated Use ProviderHealth */
+export interface SsoHealth {
+  status: "ok" | "error" | "idle";
+  sessionCount?: number;
+  certExpiry?: string;
+  lastVerified?: string;
+  message?: string;
+}
+
+/* ── PII Redaction ────────────────────────────────────────── */
+
+export interface PiiRule {
+  ruleId: string;
+  name: string;
+  category: "financial" | "identity" | "technical" | "custom";
+  regexPattern: string;
+  replacement: string;
+  enabled: boolean;
+  severity: "high" | "medium" | "low";
+}
+
+export interface PiiConfig {
+  masterEnabled: boolean;
+  rules: PiiRule[];
+}
+
+/* ── Platform / API Keys ──────────────────────────────────── */
+
+export interface PlatformInfo {
+  configuredPublicUrl: string | null;
+  resolvedPublicUrl: string;
+  otlpHttpUrl: string;
+  otlpGrpcEndpoint: string | null;
+  grpcPort: number;
+  grpcEnabled: boolean;
+  version: string;
+  storageBackend: string;
+  ingestModes: string;
+}
+
+export interface ApiKeyInfo {
+  keyHash: string;
+  name: string;
+  keyPrefix: string | null;
+  scopes: string[];
+  expiresAt: string | null;
+  lastUsedAt: string | null;
+  createdAt: string;
+  expired: boolean;
+}
+
+export interface ApiKeyCreated {
+  keyHash: string;
+  name: string;
+  keyPrefix: string;
+  key: string;
+  scopes: string[];
+  createdAt: string;
+}
+
 /* ── Audit Logs ───────────────────────────────────────────── */
 
 export interface AuditLogEntry {
   logId: string;
   tenantId: string;
-  userId: string;
-  username?: string;
+  userId: string | null;
+  username: string | null;
   action: string;
-  resourceType?: string;
-  resourceId?: string | null;
-  ipAddress: string;
-  userAgent?: string;
-  success?: boolean;
-  details?: Record<string, unknown>;
+  resourceType: string;
+  resourceId: string | null;
+  ipAddress: string | null;
+  userAgent: string | null;
+  success: boolean;
+  details: Record<string, unknown>;
   createdAt: string;
 }
 

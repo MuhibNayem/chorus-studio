@@ -55,7 +55,7 @@ export default function AgentRunsTab({ agentId }: { agentId: string }) {
             {runs.map((r) => (
               <tr key={r.runId}>
                 <td><RefBadge variant={r.status === "SUCCESS" ? "success" : r.status === "ERROR" ? "error" : "warning"} dot>{r.status}</RefBadge></td>
-                <td className="row-id">run_{r.runId.slice(0, 18)}…</td>
+                <td className="row-id">run_{(r.runId ?? "").slice(0, 18)}…</td>
                 <td className="mono mute">{r.model || "—"}</td>
                 <td><MiniTrace mix={[["llm", 24], ["tool", 8], ["rag", 12], ["llm", 48], ["guardrail", 6], ["tool", 2]]} /></td>
                 <td className="r">{formatTokens(r.totalTokens)}</td>

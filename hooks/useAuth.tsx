@@ -99,6 +99,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(data.error || "Login failed");
     }
     const data = await res.json();
+    localStorage.setItem("chorus_tenant_id", data.tenantId);
     setUser({
       userId: data.userId,
       email: data.email,
@@ -120,6 +121,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       throw new Error(data.error || "Registration failed");
     }
     const data = await res.json();
+    localStorage.setItem("chorus_tenant_id", data.tenantId);
     setUser({
       userId: data.userId,
       email: data.email,

@@ -54,59 +54,76 @@ function ProvenanceNode({ data }: NodeProps & { data: NodeData }) {
 function layout(
   entries: ProvenanceEntry[]
 ): { nodes: Node<NodeData>[]; edges: Edge[] } {
+  if (!entries || !Array.isArray(entries)) {
+    return { nodes: [], edges: [] };
+  }
+
   const g = new dagre.graphlib.Graph();
   g.setDefaultEdgeLabel(() => ({}));
   g.setGraph({ rankdir: "LR", ranksep: LEVEL_SEP, nodesep: NODE_SEP });
 
   for (const e of entries) {
-    g.setNode(e.entryId, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    if (e && e.entryId) {
+      g.setNode(e.entryId, { width: NODE_WIDTH, height: NODE_HEIGHT });
+    }
   }
   for (const e of entries) {
-    for (const parentId of e.parentIds) {
-      if (entries.some((x) => x.entryId === parentId)) {
-        g.setEdge(parentId, e.entryId);
+    if (e && e.entryId && e.parentIds && Array.isArray(e.parentIds)) {
+      for (const parentId of e.parentIds) {
+        if (parentId && entries.some((x) => x && x.entryId === parentId)) {
+          g.setEdge(parentId, e.entryId);
+        }
       }
     }
   }
 
-  dagre.layout(g);
+  try {
+    dagre.layout(g);
+  } catch (err) {
+    console.error("Dagre layout error", err);
+  }
 
-  const nodes: Node<NodeData>[] = entries.map((e) => {
-    const pos = g.node(e.entryId);
-    const dt = e.decisionType;
-    const shortLabel = dt.length > 22 ? dt.substring(0, 20) + ".." : dt;
-    return {
-      id: e.entryId,
-      type: "provenance",
-      position: {
-        x: pos.x - pos.width / 2,
-        y: pos.y - pos.height / 2,
-      },
-      data: {
-        label: shortLabel,
-        meta: e.agentId,
-        badgeType: getType(dt),
-        timestamp: e.timestamp,
-      },
-    };
-  });
+  const nodes: Node<NodeData>[] = entries
+    .filter((e) => e && e.entryId)
+    .map((e) => {
+      const pos = g.node(e.entryId) || { x: 0, y: 0, width: NODE_WIDTH, height: NODE_HEIGHT };
+      const dt = e.decisionType || "";
+      const shortLabel = dt.length > 22 ? dt.substring(0, 20) + ".." : dt;
+      return {
+        id: e.entryId,
+        type: "provenance",
+        position: {
+          x: pos.x - (pos.width || NODE_WIDTH) / 2,
+          y: pos.y - (pos.height || NODE_HEIGHT) / 2,
+        },
+        data: {
+          label: shortLabel,
+          meta: e.agentId || "",
+          badgeType: getType(dt),
+          timestamp: e.timestamp || "",
+        },
+      };
+    });
 
   const edges: Edge[] = [];
   for (const e of entries) {
-    for (let i = 0; i < e.parentIds.length; i++) {
-      const parentId = e.parentIds[i];
-      if (!entries.some((x) => x.entryId === parentId)) continue;
-      edges.push({
-        id: `${parentId}->${e.entryId}${i > 0 ? `_${i}` : ""}`,
-        source: parentId,
-        target: e.entryId,
-        type: "smoothstep",
-        animated: false,
-        style: {
-          stroke: "hsl(var(--muted-foreground) / 0.5)",
-          strokeWidth: 1.5,
-        },
-      });
+    if (e && e.entryId && e.parentIds && Array.isArray(e.parentIds)) {
+      for (let i = 0; i < e.parentIds.length; i++) {
+        const parentId = e.parentIds[i];
+        if (!parentId) continue;
+        if (!entries.some((x) => x && x.entryId === parentId)) continue;
+        edges.push({
+          id: `${parentId}->${e.entryId}${i > 0 ? `_${i}` : ""}`,
+          source: parentId,
+          target: e.entryId,
+          type: "smoothstep",
+          animated: false,
+          style: {
+            stroke: "hsl(var(--muted-foreground) / 0.5)",
+            strokeWidth: 1.5,
+          },
+        });
+      }
     }
   }
 
@@ -128,7 +145,7 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
   const { nodes, edges } = useMemo(() => layout(entries), [entries]);
   const nodeTypes = useMemo(() => ({ provenance: ProvenanceNode }), []);
 
-  const selectedEntry = selectedId ? entries.find((e) => e.entryId === selectedId) ?? null : null;
+  const selectedEntry = selectedId && Array.isArray(entries) ? entries.find((e) => e && e.entryId === selectedId) ?? null : null;
 
   const onNodeClick = useCallback(
     (_event: React.MouseEvent, node: Node) => {
@@ -144,7 +161,7 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
     Math.max(...nodes.map((n) => n.position.y), 0) + NODE_HEIGHT + 60
   );
 
-  if (entries.length === 0) {
+  if (!entries || !Array.isArray(entries) || entries.length === 0) {
     return (
       <RefCard>
         <div
@@ -278,13 +295,13 @@ export default function ProvenanceDag({ entries }: { entries: ProvenanceEntry[] 
                 </div>
               )}
 
-              {selectedEntry.parentIds && selectedEntry.parentIds.length > 0 && (
+              {selectedEntry && selectedEntry.parentIds && Array.isArray(selectedEntry.parentIds) && selectedEntry.parentIds.length > 0 && (
                 <div className="dag-detail-section">
                   <div className="dag-detail-label">Parents</div>
                   <div className="dag-detail-tags">
                     {selectedEntry.parentIds.map((pid) => (
                       <span key={pid} className="dag-detail-tag">
-                        {pid.length > 18 ? pid.substring(0, 16) + ".." : pid}
+                        {pid && pid.length > 18 ? pid.substring(0, 16) + ".." : pid}
                       </span>
                     ))}
                   </div>
